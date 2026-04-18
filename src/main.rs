@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
 const TASK_ID_PREFIX: &str = "D:";
 const TASK_ID_HEX_LEN: usize = 12;
 
@@ -9,7 +12,16 @@ fn is_task_id(s: &str) -> bool {
     }
 }
 
+fn truncate_for_display(s: &str, max_chars: usize) -> String {
+    if s.chars().count() > max_chars {
+        s.chars().take(max_chars).collect::<String>()
+    } else {
+        s.to_string()
+    }
+}
+
 fn main() -> std::io::Result<()> {
+    // Read path from command line
     let mut args = std::env::args();
     let path = match args.nth(1) {
         None => {
@@ -19,9 +31,34 @@ fn main() -> std::io::Result<()> {
         Some(p) => p,
     };
 
-    // Read sample file
-    let contents = std::fs::read_to_string(&path)?;
-    println!("{}: {} bytes", &path, contents.len());
+    // Read file
+    let file = File::open(&path)?;
+    let reader = BufReader::new(file);
+    let mut lines_iter = reader.lines();
+
+    let first_line: String = match lines_iter.next() {
+        None => {
+            println!("file is empty");
+            std::process::exit(0);
+        }
+        Some(line) => line?,
+    };
+
+    let mut last_line: String = first_line.clone(); // allocation
+    let mut line_count: usize = 1;
+    let mut byte_count: usize = first_line.len() + 1;
+
+    // TODO: use faster API BufRead::read_line
+    for line in lines_iter {
+        let line = line?;
+        line_count += 1;
+        byte_count += line.len() + 1;
+        last_line = line;
+    }
+
+    println!("{}: {} lines, {} bytes", &path, line_count, byte_count);
+    println!("First line: {}", truncate_for_display(&first_line, 100));
+    println!("Last line: {}", truncate_for_display(&last_line, 100));
 
     Ok(())
 }
@@ -72,5 +109,23 @@ mod tests {
         assert!(is_task_id(sample));
         // And verify the constant is what we think:
         assert_eq!(sample.len() - TASK_ID_PREFIX.len(), TASK_ID_HEX_LEN);
+    }
+
+    #[test]
+    fn truncate_shorter_than_max_returns_unchanged() {
+        assert_eq!(truncate_for_display("hello", 100), "hello");
+    }
+
+    #[test]
+    fn truncate_longer_than_max_returns_max_chars() {
+        let s = "a".repeat(200);
+        let result = truncate_for_display(&s, 100);
+        assert_eq!(result.chars().count(), 100);
+    }
+
+    #[test]
+    fn truncate_respects_max_chars_parameter() {
+        let s = "abcdefghij";
+        assert_eq!(truncate_for_display(s, 5), "abcde");
     }
 }
