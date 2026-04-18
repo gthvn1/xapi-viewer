@@ -1,8 +1,7 @@
 const TASK_ID_PREFIX: &str = "D:";
 const TASK_ID_HEX_LEN: usize = 12;
 
-const SAMPLE: &str = "samples/xensource.log";
-
+#[allow(dead_code)]
 fn is_task_id(s: &str) -> bool {
     match s.strip_prefix(TASK_ID_PREFIX) {
         None => false,
@@ -11,16 +10,18 @@ fn is_task_id(s: &str) -> bool {
 }
 
 fn main() -> std::io::Result<()> {
-    let task_id_sample = "D:ae5fb3924f47";
-    println!(
-        "{} is_task_id: {}",
-        task_id_sample,
-        is_task_id(task_id_sample)
-    );
+    let mut args = std::env::args();
+    let path = match args.nth(1) {
+        None => {
+            eprintln!("Usage: xapi-viewer <path>");
+            std::process::exit(1);
+        }
+        Some(p) => p,
+    };
 
     // Read sample file
-    let contents = std::fs::read_to_string(SAMPLE)?;
-    println!("{}: {} bytes", SAMPLE, contents.len());
+    let contents = std::fs::read_to_string(&path)?;
+    println!("{}: {} bytes", &path, contents.len());
 
     Ok(())
 }
