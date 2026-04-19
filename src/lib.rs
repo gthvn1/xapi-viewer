@@ -7,6 +7,8 @@ const REQUEST_ID_HEX_LEN: usize = 12;
 const TRACK_ID_PREFIX: &str = "trackid=";
 const TRACK_ID_HEX_LEN: usize = 32;
 
+const UUID_PREFIX: &str = "uuid:";
+
 pub fn is_task_id(s: &str) -> bool {
     match s.strip_prefix(TASK_ID_PREFIX) {
         None => false,
@@ -27,6 +29,29 @@ pub fn is_track_id(s: &str) -> bool {
     match s.strip_prefix(TRACK_ID_PREFIX) {
         None => false,
         Some(rest) => rest.len() == TRACK_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit()),
+    }
+}
+
+pub fn is_uuid(s: &str) -> bool {
+    match s.strip_prefix(UUID_PREFIX) {
+        None => false,
+        Some(rest) => {
+            // We are expecting 8, 4, 4, 4 and 12 hex chars
+            let part_len = [8, 4, 4, 4, 12];
+            let parts: Vec<&str> = rest.split('-').collect();
+
+            if parts.len() != part_len.len() {
+                return false;
+            };
+
+            for (p, expected_len) in std::iter::zip(parts, part_len) {
+                if p.len() != expected_len || !p.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return false;
+                }
+            }
+
+            true
+        }
     }
 }
 
@@ -118,7 +143,7 @@ mod tests {
 
     #[test]
     fn rejects_req_id_non_hex_chars() {
-        assert!(!is_request_id("R:23456789ABCDEFG"));
+        assert!(!is_request_id("R:56789ABCDEFG"));
     }
 
     #[test]
@@ -152,17 +177,17 @@ mod tests {
 
     #[test]
     fn rejects_track_id_too_short() {
-        assert!(!is_track_id("e48e7b5a693b76fe0835dc08535e44f"));
+        assert!(!is_track_id("trackid=e48e7b5a693b76fe0835dc08535e44f"));
     }
 
     #[test]
     fn rejects_track_id_too_long() {
-        assert!(!is_track_id("e48e7b5a693b76fe0835dc08535e44fe1"));
+        assert!(!is_track_id("trackid=e48e7b5a693b76fe0835dc08535e44fe1"));
     }
 
     #[test]
     fn rejects_track_id_non_hex_chars() {
-        assert!(!is_track_id("trackid=Z48e7b5a693b76fe0835dc08535e44fe"));
+        assert!(!is_track_id("trackid=z48e7b5a693b76fe0835dc08535e44fe"));
     }
 
     #[test]
@@ -172,6 +197,31 @@ mod tests {
         assert!(is_track_id(sample));
         // And verify the constant is what we think:
         assert_eq!(sample.len() - TRACK_ID_PREFIX.len(), TRACK_ID_HEX_LEN);
+    }
+
+    #[test]
+    fn accepts_uuid_lowercase_hex() {
+        assert!(is_uuid("uuid:22b24399-2a35-a70f-78b4-3fd3f978a9d1"));
+    }
+
+    #[test]
+    fn accepts_uuid_uppercase_hex() {
+        assert!(is_uuid("uuid:12B24F99-2A35-A70F-78B4-3FD3F9780000"));
+    }
+
+    #[test]
+    fn rejects_uuid_no_hyphens() {
+        assert!(!is_uuid("uuid:22b243992a35a70f78b43fd3f978a9d1"));
+    }
+
+    #[test]
+    fn rejects_uuid_wrong_hyphens_placement() {
+        assert!(!is_uuid("uuid:22b243992-a35-a70f-78b4-3fd3f978a9d1"));
+    }
+
+    #[test]
+    fn rejects_uuid_non_hex() {
+        assert!(!is_uuid("uuid:z2b24399-2a35-a70f-78b4-3fd3f978a9d1"));
     }
 
     #[test]
