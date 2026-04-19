@@ -11,49 +11,49 @@ const UUID_PREFIX: &str = "uuid:";
 
 const OPAQUE_REF_PREFIX: &str = "OpaqueRef:";
 
-pub fn is_task_id(s: &str) -> bool {
-    match s.strip_prefix(TASK_ID_PREFIX) {
+// Private helpers
+fn is_hex_id_with_prefix(s: &str, prefix: &str, hex_len: usize) -> bool {
+    match s.strip_prefix(prefix) {
         None => false,
-        Some(rest) => rest.len() == TASK_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit()),
+        Some(rest) => rest.len() == hex_len && rest.chars().all(|c| c.is_ascii_hexdigit()),
     }
+}
+
+// Return true if s is of form XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+// where X is an hexadecimal digit
+fn is_uuid_shaped(s: &str) -> bool {
+    let part_len = [8, 4, 4, 4, 12];
+    let parts: Vec<&str> = s.split('-').collect();
+
+    if parts.len() != part_len.len() {
+        return false;
+    };
+
+    for (p, expected_len) in std::iter::zip(parts, part_len) {
+        if p.len() != expected_len || !p.chars().all(|c| c.is_ascii_hexdigit()) {
+            return false;
+        }
+    }
+
+    true
+}
+
+pub fn is_task_id(s: &str) -> bool {
+    is_hex_id_with_prefix(s, TASK_ID_PREFIX, TASK_ID_HEX_LEN)
 }
 
 pub fn is_request_id(s: &str) -> bool {
-    match s.strip_prefix(REQUEST_ID_PREFIX) {
-        None => false,
-        Some(rest) => {
-            rest.len() == REQUEST_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit())
-        }
-    }
+    is_hex_id_with_prefix(s, REQUEST_ID_PREFIX, REQUEST_ID_HEX_LEN)
 }
 
 pub fn is_track_id(s: &str) -> bool {
-    match s.strip_prefix(TRACK_ID_PREFIX) {
-        None => false,
-        Some(rest) => rest.len() == TRACK_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit()),
-    }
+    is_hex_id_with_prefix(s, TRACK_ID_PREFIX, TRACK_ID_HEX_LEN)
 }
 
 pub fn is_uuid(s: &str) -> bool {
     match s.strip_prefix(UUID_PREFIX) {
         None => false,
-        Some(rest) => {
-            // We are expecting 8, 4, 4, 4 and 12 hex chars
-            let part_len = [8, 4, 4, 4, 12];
-            let parts: Vec<&str> = rest.split('-').collect();
-
-            if parts.len() != part_len.len() {
-                return false;
-            };
-
-            for (p, expected_len) in std::iter::zip(parts, part_len) {
-                if p.len() != expected_len || !p.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return false;
-                }
-            }
-
-            true
-        }
+        Some(rest) => is_uuid_shaped(rest),
     }
 }
 
@@ -61,23 +61,7 @@ pub fn is_opaque_ref(s: &str) -> bool {
     match s.strip_prefix(OPAQUE_REF_PREFIX) {
         None => false,
         Some("NULL") => true,
-        Some(rest) => {
-            // We are expecting 8, 4, 4, 4 and 12 hex chars
-            let part_len = [8, 4, 4, 4, 12];
-            let parts: Vec<&str> = rest.split('-').collect();
-
-            if parts.len() != part_len.len() {
-                return false;
-            };
-
-            for (p, expected_len) in std::iter::zip(parts, part_len) {
-                if p.len() != expected_len || !p.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return false;
-                }
-            }
-
-            true
-        }
+        Some(rest) => is_uuid_shaped(rest),
     }
 }
 
