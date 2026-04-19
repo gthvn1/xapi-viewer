@@ -10,6 +10,6 @@ command = ["cargo", "test", "--color", "always", "--", "--color", "always"]
 need_stdout = true
 
 [jobs.run]
-command = ["cargo", "run", "--color", "always"]
+command = ["cargo", "run", "--color", "always", "--", "samples/xensource.log"]
 need_stdout = true
 allow_warnings = true

@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use xapi_viewer::truncate_for_display;
+use xapi_viewer::{PatternCounts, count_patterns_in_line, truncate_for_display};
 
 fn main() -> std::io::Result<()> {
     // Read path from command line
@@ -31,15 +31,24 @@ fn main() -> std::io::Result<()> {
     let mut line_count: usize = 1;
     let mut byte_count: usize = first_line.len() + 1;
 
+    let mut counts = PatternCounts::default();
+    count_patterns_in_line(&first_line, &mut counts);
+
     // TODO: use faster API BufRead::read_line
     for line in lines_iter {
         let line = line?;
         line_count += 1;
         byte_count += line.len() + 1;
+        count_patterns_in_line(&line, &mut counts);
         last_line = line;
     }
 
     println!("{}: {} lines, {} bytes", &path, line_count, byte_count);
+    println!("  task_id   : {:?}", counts.task_id);
+    println!("  request_id: {:?}", counts.request_id);
+    println!("  track_id  : {:?}", counts.track_id);
+    println!("  UUID      : {:?}", counts.uuid);
+    println!("  OpaqueRef : {:?}", counts.opaque_ref);
     println!("First line: {}", truncate_for_display(&first_line, 100));
     println!("Last line: {}", truncate_for_display(&last_line, 100));
 
