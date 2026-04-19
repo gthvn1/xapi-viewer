@@ -4,6 +4,9 @@ const TASK_ID_HEX_LEN: usize = 12;
 const REQUEST_ID_PREFIX: &str = "R:";
 const REQUEST_ID_HEX_LEN: usize = 12;
 
+const TRACK_ID_PREFIX: &str = "trackid=";
+const TRACK_ID_HEX_LEN: usize = 32;
+
 pub fn is_task_id(s: &str) -> bool {
     match s.strip_prefix(TASK_ID_PREFIX) {
         None => false,
@@ -17,6 +20,13 @@ pub fn is_request_id(s: &str) -> bool {
         Some(rest) => {
             rest.len() == REQUEST_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit())
         }
+    }
+}
+
+pub fn is_track_id(s: &str) -> bool {
+    match s.strip_prefix(TRACK_ID_PREFIX) {
+        None => false,
+        Some(rest) => rest.len() == TRACK_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit()),
     }
 }
 
@@ -118,6 +128,50 @@ mod tests {
         assert!(is_request_id(sample));
         // And verify the constant is what we think:
         assert_eq!(sample.len() - REQUEST_ID_PREFIX.len(), REQUEST_ID_HEX_LEN);
+    }
+
+    #[test]
+    fn accepts_track_id_valid() {
+        assert!(is_track_id("trackid=e48e7b5a693b76fe0835dc08535e44fe"));
+    }
+
+    #[test]
+    fn rejects_track_id_empty() {
+        assert!(!is_track_id(""));
+    }
+
+    #[test]
+    fn rejects_track_id_wrong_prefix() {
+        assert!(!is_track_id("tid=e48e7b5a693b76fe0835dc08535e44fe"));
+    }
+
+    #[test]
+    fn rejects_track_id_no_prefix() {
+        assert!(!is_track_id("e48e7b5a693b76fe0835dc08535e44fe"));
+    }
+
+    #[test]
+    fn rejects_track_id_too_short() {
+        assert!(!is_track_id("e48e7b5a693b76fe0835dc08535e44f"));
+    }
+
+    #[test]
+    fn rejects_track_id_too_long() {
+        assert!(!is_track_id("e48e7b5a693b76fe0835dc08535e44fe1"));
+    }
+
+    #[test]
+    fn rejects_track_id_non_hex_chars() {
+        assert!(!is_track_id("trackid=Z48e7b5a693b76fe0835dc08535e44fe"));
+    }
+
+    #[test]
+    fn check_track_id_length_constant_matches_real_sample() {
+        // From the xapi log sample:
+        let sample = "trackid=e48e7b5a693b76fe0835dc08535e44fe";
+        assert!(is_track_id(sample));
+        // And verify the constant is what we think:
+        assert_eq!(sample.len() - TRACK_ID_PREFIX.len(), TRACK_ID_HEX_LEN);
     }
 
     #[test]
