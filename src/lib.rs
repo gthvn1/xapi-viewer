@@ -1,6 +1,18 @@
 const TASK_ID_PREFIX: &str = "D:";
 const TASK_ID_HEX_LEN: usize = 12;
 
+const REQUEST_ID_PREFIX: &str = "R:";
+const REQUEST_ID_HEX_LEN: usize = 12;
+
+pub fn is_request_id(s: &str) -> bool {
+    match s.strip_prefix(REQUEST_ID_PREFIX) {
+        None => false,
+        Some(rest) => {
+            rest.len() == REQUEST_ID_HEX_LEN && rest.chars().all(|c| c.is_ascii_hexdigit())
+        }
+    }
+}
+
 pub fn is_task_id(s: &str) -> bool {
     match s.strip_prefix(TASK_ID_PREFIX) {
         None => false,
@@ -62,6 +74,21 @@ mod tests {
         assert!(is_task_id(sample));
         // And verify the constant is what we think:
         assert_eq!(sample.len() - TASK_ID_PREFIX.len(), TASK_ID_HEX_LEN);
+    }
+
+    #[test]
+    fn accepts_real_req_id() {
+        assert!(is_request_id("R:620f6218c82d"));
+    }
+
+    #[test]
+    fn rejects_empty_req_id() {
+        assert!(!is_request_id(""));
+    }
+
+    #[test]
+    fn rejects_req_id_wrong_prefix() {
+        assert!(!is_request_id("D:ae5fb3924f47"));
     }
 
     #[test]

@@ -1,11 +1,15 @@
-# src/main.rs
+# Rules
 
-RULE
-:: "you can always optimize code you understand, you can't debug code you don't"
+- Some quotes that I found interesting:
 
-Note
-:: lines() is one allocation for string and one drop when last_line is overwritten
+> you can always optimize code you understand, you can't debug code you don't
 
-Note
-:: last_line takes the ownership (copy pointer,length and capacity of allocated string)
+> Two lines of duplication = coincidence. Three = pattern. Abstract on three.
+
+# Notes
+
+## src/main.rs
+
+- `lines()` is one allocation for string and one drop when last_line is overwritten
+- `last_line` takes the ownership (copy pointer,length and capacity of allocated string)
 
