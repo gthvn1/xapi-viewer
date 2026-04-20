@@ -1,3 +1,6 @@
+use regex::Regex;
+use std::sync::LazyLock;
+
 const TASK_ID_PREFIX: &str = "D:";
 const TASK_ID_HEX_LEN: usize = 12;
 
@@ -10,6 +13,9 @@ const TRACK_ID_HEX_LEN: usize = 32;
 const UUID_PREFIX: &str = "uuid:";
 
 const OPAQUE_REF_PREFIX: &str = "OpaqueRef:";
+
+static TASK_ID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bD:[0-9a-fA-F]{12}\b").expect("TASK_ID_RE regex is invalid"));
 
 #[derive(Debug, Default)]
 pub struct PatternCounts {
@@ -40,6 +46,12 @@ pub fn count_patterns_in_line(line: &str, counts: &mut PatternCounts) {
             counts.opaque_ref += 1
         }
     }
+}
+
+// Count task_id occurences in a single line using regex.
+// Unlike the whitespace tokenizer, this find patterns inside compount tokens like `parent=D:...`
+pub fn count_task_ids_regex(line: &str) -> usize {
+    TASK_ID_RE.find_iter(line).count()
 }
 
 // Private helpers
@@ -473,5 +485,47 @@ mod tests {
         );
         assert_eq!(counts.uuid, 1);
         assert_eq!(counts.opaque_ref, 0); // <- intentional: see KNOWN LIMITATION
+    }
+
+    // --- count_task_ids_regex ---
+
+    #[test]
+    fn regex_counts_simple_task_id() {
+        assert_eq!(count_task_ids_regex("D:ae5fb3924f47"), 1);
+    }
+
+    #[test]
+    fn regex_counts_zero_in_empty_line() {
+        assert_eq!(count_task_ids_regex(""), 0);
+    }
+
+    #[test]
+    fn regex_counts_task_id_in_compound_token() {
+        // This is the case the whitespace tokenizer misses.
+        assert_eq!(count_task_ids_regex("parent=D:ae5fb3924f47"), 1);
+    }
+
+    #[test]
+    fn regex_counts_multiple_task_ids() {
+        assert_eq!(
+            count_task_ids_regex("task D:cdb76b62c8c1 created by task D:b3c7cbfe916e"),
+            2
+        );
+    }
+
+    #[test]
+    fn regex_does_not_count_too_long_hex() {
+        // 14 hex chars — not a valid task ID.
+        assert_eq!(count_task_ids_regex("D:ae5fb3924f47ab"), 0);
+    }
+
+    #[test]
+    fn regex_does_not_count_wrong_prefix() {
+        assert_eq!(count_task_ids_regex("R:ae5fb3924f47"), 0);
+    }
+
+    #[test]
+    fn regex_does_not_count_non_hex() {
+        assert_eq!(count_task_ids_regex("D:ae5fb3924fzz"), 0);
     }
 }
