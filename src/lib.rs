@@ -459,10 +459,10 @@ mod tests {
     }
 
     #[test]
-    fn count_uuid_and_opaque_ref_in_same_line() {
+    fn count_known_limitation_opaque_ref_behind_compound_token() {
         // KNOWN LIMITATION:
         // The whitespace tokenizer misses patterns embedded in compound tokens.
-        // Example: `parent=trackid=9834...` is one whitespace-bounded token.
+        // Example: `ref=OpaqueRef:9834...` is one whitespace-bounded token.
         // When slice 3 introduces regex with word boundaries, this should be
         // detected — at which point this test will need to be updated to
         // expect 1, not 0.
