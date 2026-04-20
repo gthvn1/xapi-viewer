@@ -652,6 +652,14 @@ mod tests {
     }
 
     #[test]
+    fn regex_counts_opaque_ref_with_wrong_hex() {
+        assert_eq!(
+            count_opaque_refs_regex("OpaqueRef:g12859a9-2107-8341-d4c5-d027be864d45"),
+            0
+        );
+    }
+
+    #[test]
     fn regex_counts_opaque_ref_null() {
         assert_eq!(count_opaque_refs_regex("OpaqueRef:NULL"), 1);
     }
