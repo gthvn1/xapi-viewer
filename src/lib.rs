@@ -35,6 +35,15 @@ static OPAQUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("OPAQUE_REF_RE regex is invalid")
 });
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternKind {
+    TaskId,
+    RequestId,
+    TrackId,
+    Uuid,
+    OpaqueRef,
+}
+
 #[derive(Debug, Default)]
 pub struct PatternCounts {
     pub task_id: usize,
@@ -487,5 +496,36 @@ mod tests {
         );
         assert_eq!(counts.uuid, 1);
         assert_eq!(counts.opaque_ref, 1); // was 0 under whitespace tokenization
+    }
+
+    // --- PatternKind ---
+
+    #[test]
+    fn pattern_kinds_are_equal_to_themselves() {
+        assert_eq!(PatternKind::TaskId, PatternKind::TaskId);
+    }
+
+    #[test]
+    fn pattern_kinds_are_not_equal_to_others() {
+        assert_ne!(PatternKind::TaskId, PatternKind::RequestId);
+        assert_ne!(PatternKind::Uuid, PatternKind::OpaqueRef);
+    }
+
+    #[test]
+    fn pattern_kinds_are_copy() {
+        // If PatternKind were not Copy, this code wouldn't compile.
+        // The assignment `let b = a` would move `a`, and then `a` on the
+        // last line would be a use-after-move error.
+        let a = PatternKind::TaskId;
+        let b = a;
+        assert_eq!(a, b); // uses both `a` and `b` after the "copy"
+    }
+
+    #[test]
+    fn pattern_kinds_have_debug_output() {
+        // Just verify Debug doesn't panic and produces something.
+        let s = format!("{:?}", PatternKind::OpaqueRef);
+        assert!(!s.is_empty());
+        assert!(s.contains("OpaqueRef")); // Debug format defaults to the variant name
     }
 }
