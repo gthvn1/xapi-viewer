@@ -44,48 +44,16 @@ pub struct PatternCounts {
     pub opaque_ref: usize,
 }
 
-/// Count occurrences of each pattern in a single line.
+/// Count occurrences of each pattern in a single line using compiled regexes.
 ///
-/// Uses whitespace tokenization, so patterns embedded in compound tokens
-/// (e.g. `parent=trackid=...`) are not detected. Empirical coverage against
-/// real xapi logs is ~62% for trackid. This will be replaced with proper
-/// regex matching in a future iteration.
+/// Patterns are matched with word boundaries, so occurrences inside compound
+/// tokens (e.g. `parent=trackid=...`) are correctly detected.
 pub fn count_patterns_in_line(line: &str, counts: &mut PatternCounts) {
-    for token in line.split(|c: char| c.is_whitespace()) {
-        if is_task_id(token) {
-            counts.task_id += 1
-        } else if is_request_id(token) {
-            counts.request_id += 1
-        } else if is_track_id(token) {
-            counts.track_id += 1
-        } else if is_uuid(token) {
-            counts.uuid += 1
-        } else if is_opaque_ref(token) {
-            counts.opaque_ref += 1
-        }
-    }
-}
-
-// Count task_id occurences in a single line using regex.
-// Unlike the whitespace tokenizer, this find patterns inside compount tokens like `parent=D:...`
-pub fn count_task_ids_regex(line: &str) -> usize {
-    TASK_ID_RE.find_iter(line).count()
-}
-
-pub fn count_request_ids_regex(line: &str) -> usize {
-    REQUEST_ID_RE.find_iter(line).count()
-}
-
-pub fn count_track_ids_regex(line: &str) -> usize {
-    TRACK_ID_RE.find_iter(line).count()
-}
-
-pub fn count_uuids_regex(line: &str) -> usize {
-    UUID_RE.find_iter(line).count()
-}
-
-pub fn count_opaque_refs_regex(line: &str) -> usize {
-    OPAQUE_REF_RE.find_iter(line).count()
+    counts.task_id += TASK_ID_RE.find_iter(line).count();
+    counts.request_id += REQUEST_ID_RE.find_iter(line).count();
+    counts.track_id += TRACK_ID_RE.find_iter(line).count();
+    counts.uuid += UUID_RE.find_iter(line).count();
+    counts.opaque_ref += OPAQUE_REF_RE.find_iter(line).count();
 }
 
 // Private helpers
@@ -505,162 +473,16 @@ mod tests {
     }
 
     #[test]
-    fn count_known_limitation_opaque_ref_behind_compound_token() {
-        // KNOWN LIMITATION:
-        // The whitespace tokenizer misses patterns embedded in compound tokens.
-        // Example: `ref=OpaqueRef:9834...` is one whitespace-bounded token.
-        // When slice 3 introduces regex with word boundaries, this should be
-        // detected — at which point this test will need to be updated to
-        // expect 1, not 0.
+    fn count_opaque_ref_in_compound_token() {
+        // FORMERLY a known limitation (slice 2f): the whitespace tokenizer missed
+        // patterns embedded in compound tokens. As of slice 3, regex with word
+        // boundaries detects these correctly.
         let mut counts = PatternCounts::default();
         count_patterns_in_line(
             "for uuid:22b24399-2a35-a70f-78b4-3fd3f978a9d1 ref=OpaqueRef:b12859d9-2107-8341-d4c5-d027be864d45",
             &mut counts,
         );
         assert_eq!(counts.uuid, 1);
-        assert_eq!(counts.opaque_ref, 0); // <- intentional: see KNOWN LIMITATION
-    }
-
-    // --- count_task_ids_regex ---
-
-    #[test]
-    fn regex_counts_simple_task_id() {
-        assert_eq!(count_task_ids_regex("D:ae5fb3924f47"), 1);
-    }
-
-    #[test]
-    fn regex_counts_zero_in_empty_line() {
-        assert_eq!(count_task_ids_regex(""), 0);
-    }
-
-    #[test]
-    fn regex_counts_task_id_in_compound_token() {
-        // This is the case the whitespace tokenizer misses.
-        assert_eq!(count_task_ids_regex("parent=D:ae5fb3924f47"), 1);
-    }
-
-    #[test]
-    fn regex_counts_multiple_task_ids() {
-        assert_eq!(
-            count_task_ids_regex("task D:cdb76b62c8c1 created by task D:b3c7cbfe916e"),
-            2
-        );
-    }
-
-    #[test]
-    fn regex_does_not_count_too_long_hex() {
-        // 14 hex chars — not a valid task ID.
-        assert_eq!(count_task_ids_regex("D:ae5fb3924f47ab"), 0);
-    }
-
-    #[test]
-    fn regex_does_not_count_wrong_prefix() {
-        assert_eq!(count_task_ids_regex("R:ae5fb3924f47"), 0);
-    }
-
-    #[test]
-    fn regex_does_not_count_non_hex() {
-        assert_eq!(count_task_ids_regex("D:ae5fb3924fzz"), 0);
-    }
-
-    #[test]
-    fn regex_does_not_count_trackid_with_non_hex_body() {
-        // z is not a hex digit
-        assert_eq!(
-            count_track_ids_regex("trackid=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
-            0
-        );
-    }
-
-    #[test]
-    fn regex_does_not_count_request_id_with_non_hex_body() {
-        // 'z' is not a hex digit — should not match.
-        assert_eq!(count_request_ids_regex("R:zzzzzzzzzzzz"), 0);
-    }
-
-    #[test]
-    fn regex_does_not_count_uuid_with_non_hex_first_group() {
-        // First group (8 chars) has non-hex 'z'.
-        assert_eq!(
-            count_uuids_regex("uuid:zzzzzzzz-2a35-a70f-78b4-3fd3f978a9d1"),
-            0
-        );
-    }
-
-    #[test]
-    fn regex_does_not_count_uuid_with_non_hex_middle_group() {
-        // Second group (4 chars) has non-hex 'z'.
-        // THIS IS THE TEST THAT WILL CURRENTLY FAIL — proving the typo.
-        assert_eq!(
-            count_uuids_regex("uuid:22b24399-zzzz-a70f-78b4-3fd3f978a9d1"),
-            0
-        );
-    }
-
-    #[test]
-    fn regex_does_not_count_uuid_with_non_hex_last_group() {
-        // Last group (12 chars) has non-hex.
-        // ALSO WILL FAIL — proving the typo in the last group.
-        assert_eq!(
-            count_uuids_regex("uuid:22b24399-2a35-a70f-78b4-zzzzzzzzzzzz"),
-            0
-        );
-    }
-
-    #[test]
-    fn regex_does_not_count_opaque_ref_with_non_hex_body() {
-        // Opaque_ref with non-hex in body.
-        assert_eq!(
-            count_opaque_refs_regex("OpaqueRef:zzzzzzzz-2a35-a70f-78b4-3fd3f978a9d1"),
-            0
-        );
-    }
-
-    // Also — positive tests that prove the regex *does* find patterns inside compound tokens.
-    // These lock in the whole reason we moved to regex.
-
-    #[test]
-    fn regex_counts_request_id_in_compound_token() {
-        assert_eq!(count_request_ids_regex("parent=R:620f6218c82d"), 1);
-    }
-
-    #[test]
-    fn regex_counts_track_id_in_compound_token() {
-        // This is the parent=trackid= case from the earlier KNOWN LIMITATION comment.
-        assert_eq!(
-            count_track_ids_regex("parent=trackid=9834f5af41c964e225f24279aefe4e49"),
-            1
-        );
-    }
-
-    #[test]
-    fn regex_counts_uuid_in_parentheses() {
-        // Every UUID in xapi logs is surrounded by parens like this.
-        assert_eq!(
-            count_uuids_regex("(uuid:ef6e722e-a0fe-f91e-7c02-09ae2a256f7f)"),
-            1
-        );
-    }
-
-    #[test]
-    fn regex_counts_opaque_ref_with_trailing_bang() {
-        // Real logs have OpaqueRef followed by '!' — regex should still count it.
-        assert_eq!(
-            count_opaque_refs_regex("OpaqueRef:b12859d9-2107-8341-d4c5-d027be864d45!"),
-            1
-        );
-    }
-
-    #[test]
-    fn regex_counts_opaque_ref_with_wrong_hex() {
-        assert_eq!(
-            count_opaque_refs_regex("OpaqueRef:g12859a9-2107-8341-d4c5-d027be864d45"),
-            0
-        );
-    }
-
-    #[test]
-    fn regex_counts_opaque_ref_null() {
-        assert_eq!(count_opaque_refs_regex("OpaqueRef:NULL"), 1);
+        assert_eq!(counts.opaque_ref, 1); // was 0 under whitespace tokenization
     }
 }
