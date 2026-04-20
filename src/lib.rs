@@ -56,7 +56,10 @@ pub fn count_patterns_in_line(line: &str, counts: &mut PatternCounts) {
     counts.opaque_ref += OPAQUE_REF_RE.find_iter(line).count();
 }
 
-// Private helpers
+// Private predicates.
+// These predicates validate a single candidate substring. Code that needs
+// to count pattern occurrences in a whole line should use
+// `count_patterns_in_line` instead, which uses regex for efficiency.
 fn is_hex_id_with_prefix(s: &str, prefix: &str, hex_len: usize) -> bool {
     match s.strip_prefix(prefix) {
         None => false,
