@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::ops::Range;
 use std::sync::LazyLock;
 
 const TASK_ID_PREFIX: &str = "D:";
@@ -44,6 +45,12 @@ pub enum PatternKind {
     OpaqueRef,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Match {
+    pub kind: PatternKind,
+    pub range: Range<usize>,
+}
+
 #[derive(Debug, Default)]
 pub struct PatternCounts {
     pub task_id: usize,
@@ -51,6 +58,26 @@ pub struct PatternCounts {
     pub track_id: usize,
     pub uuid: usize,
     pub opaque_ref: usize,
+}
+
+fn find_one_match(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
+    re.find_iter(line)
+        .map(|m| Match {
+            kind,
+            range: m.start()..m.end(),
+        })
+        .collect()
+}
+
+pub fn find_all_matches(line: &str) -> Vec<Match> {
+    let mut v = find_one_match(&TASK_ID_RE, PatternKind::TaskId, line);
+    v.extend(find_one_match(&REQUEST_ID_RE, PatternKind::RequestId, line));
+    v.extend(find_one_match(&TRACK_ID_RE, PatternKind::TrackId, line));
+    v.extend(find_one_match(&UUID_RE, PatternKind::Uuid, line));
+    v.extend(find_one_match(&OPAQUE_REF_RE, PatternKind::OpaqueRef, line));
+
+    v.sort_by_key(|a| a.range.start);
+    v
 }
 
 /// Count occurrences of each pattern in a single line using compiled regexes.
@@ -527,5 +554,93 @@ mod tests {
         let s = format!("{:?}", PatternKind::OpaqueRef);
         assert!(!s.is_empty());
         assert!(s.contains("OpaqueRef")); // Debug format defaults to the variant name
+    }
+    // --- find_all_matches ---
+
+    #[test]
+    fn find_all_matches_empty_line() {
+        let matches = find_all_matches("");
+        assert_eq!(matches.len(), 0);
+    }
+
+    #[test]
+    fn find_all_matches_no_patterns() {
+        let matches = find_all_matches("random text with no patterns");
+        assert_eq!(matches.len(), 0);
+    }
+
+    #[test]
+    fn find_all_matches_single_task_id() {
+        let line = "some text D:ae5fb3924f47 more text";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PatternKind::TaskId);
+        assert_eq!(&line[matches[0].range.clone()], "D:ae5fb3924f47");
+    }
+
+    #[test]
+    fn find_all_matches_multiple_kinds() {
+        // Realistic xapi line shape.
+        let line = "Session.create trackid=7db09a594ce3e498b0143bf7270424fa D:ae5fb3924f47";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 2);
+
+        // First match should be the trackid (appears earlier in the string).
+        assert_eq!(matches[0].kind, PatternKind::TrackId);
+        assert_eq!(
+            &line[matches[0].range.clone()],
+            "trackid=7db09a594ce3e498b0143bf7270424fa"
+        );
+
+        // Second should be the task_id.
+        assert_eq!(matches[1].kind, PatternKind::TaskId);
+        assert_eq!(&line[matches[1].range.clone()], "D:ae5fb3924f47");
+    }
+
+    #[test]
+    fn find_all_matches_returns_in_byte_order() {
+        // Two matches of the SAME kind — verify order by position, not arbitrary.
+        let line = "first D:aaaabbbbcccc then D:ddddeeeeffff";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 2);
+        assert!(matches[0].range.start < matches[1].range.start);
+        assert_eq!(&line[matches[0].range.clone()], "D:aaaabbbbcccc");
+        assert_eq!(&line[matches[1].range.clone()], "D:ddddeeeeffff");
+    }
+
+    #[test]
+    fn find_all_matches_uuid_in_parentheses() {
+        // Slice 3 lesson: UUIDs are always parenthesized in real xapi logs.
+        let line = "task created (uuid:ef6e722e-a0fe-f91e-7c02-09ae2a256f7f) ok";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PatternKind::Uuid);
+        assert_eq!(
+            &line[matches[0].range.clone()],
+            "uuid:ef6e722e-a0fe-f91e-7c02-09ae2a256f7f"
+        );
+    }
+
+    #[test]
+    fn find_all_matches_five_different_kinds() {
+        // All five kinds in one line.
+        let line = "D:ae5fb3924f47 R:620f6218c82d trackid=e48e7b5a693b76fe0835dc08535e44fe uuid:22b24399-2a35-a70f-78b4-3fd3f978a9d1 OpaqueRef:b12859d9-2107-8341-d4c5-d027be864d45";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 5);
+
+        let kinds: Vec<PatternKind> = matches.iter().map(|m| m.kind).collect();
+        assert!(kinds.contains(&PatternKind::TaskId));
+        assert!(kinds.contains(&PatternKind::RequestId));
+        assert!(kinds.contains(&PatternKind::TrackId));
+        assert!(kinds.contains(&PatternKind::Uuid));
+        assert!(kinds.contains(&PatternKind::OpaqueRef));
+    }
+
+    #[test]
+    fn find_all_matches_range_lengths_are_correct() {
+        let line = "D:aaaabbbbcccc";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].range.len(), 14); // "D:" + 12 hex = 14 chars
     }
 }
