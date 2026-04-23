@@ -51,15 +51,6 @@ pub struct Match {
     pub range: Range<usize>,
 }
 
-#[derive(Debug, Default)]
-pub struct PatternCounts {
-    pub task_id: usize,
-    pub request_id: usize,
-    pub track_id: usize,
-    pub uuid: usize,
-    pub opaque_ref: usize,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogLine {
     pub raw: String,
@@ -91,22 +82,7 @@ pub fn parse_line(raw: String) -> LogLine {
     LogLine { raw, matches }
 }
 
-/// Count occurrences of each pattern in a single line using compiled regexes.
-///
-/// Patterns are matched with word boundaries, so occurrences inside compound
-/// tokens (e.g. `parent=trackid=...`) are correctly detected.
-pub fn count_patterns_in_line(line: &str, counts: &mut PatternCounts) {
-    counts.task_id += TASK_ID_RE.find_iter(line).count();
-    counts.request_id += REQUEST_ID_RE.find_iter(line).count();
-    counts.track_id += TRACK_ID_RE.find_iter(line).count();
-    counts.uuid += UUID_RE.find_iter(line).count();
-    counts.opaque_ref += OPAQUE_REF_RE.find_iter(line).count();
-}
-
 // Private predicates.
-// These predicates validate a single candidate substring. Code that needs
-// to count pattern occurrences in a whole line should use
-// `count_patterns_in_line` instead, which uses regex for efficiency.
 fn is_hex_id_with_prefix(s: &str, prefix: &str, hex_len: usize) -> bool {
     match s.strip_prefix(prefix) {
         None => false,
@@ -454,86 +430,6 @@ mod tests {
     fn truncate_respects_max_chars_parameter() {
         let s = "abcdefghij";
         assert_eq!(truncate_for_display(s, 5), "abcde");
-    }
-
-    // --- count_patterns_in_line ---
-
-    #[test]
-    fn count_empty_line_returns_zero() {
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line("", &mut counts);
-        assert_eq!(counts.task_id, 0);
-        assert_eq!(counts.request_id, 0);
-        assert_eq!(counts.track_id, 0);
-        assert_eq!(counts.uuid, 0);
-        assert_eq!(counts.opaque_ref, 0);
-    }
-
-    #[test]
-    fn count_line_with_one_task_id() {
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line("task dispatch D:ae5fb3924f47 created", &mut counts);
-        assert_eq!(counts.task_id, 1);
-    }
-
-    #[test]
-    fn count_line_with_two_task_ids() {
-        // This is the common xapi shape: "task X created by task Y".
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line(
-            "task dispatch:event.from D:cdb76b62c8c1 created by task D:b3c7cbfe916e",
-            &mut counts,
-        );
-        assert_eq!(counts.task_id, 2);
-    }
-
-    #[test]
-    fn count_mixed_patterns_in_one_line() {
-        // A realistic xapi session.create line.
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line(
-            "Session.create trackid=7db09a594ce3e498b0143bf7270424fa D:ae5fb3924f47 R:620f6218c82d",
-            &mut counts,
-        );
-        assert_eq!(counts.task_id, 1);
-        assert_eq!(counts.request_id, 1);
-        assert_eq!(counts.track_id, 1);
-        assert_eq!(counts.uuid, 0);
-        assert_eq!(counts.opaque_ref, 0);
-    }
-
-    #[test]
-    fn count_accumulates_across_calls() {
-        // Calling count on two lines should sum, not reset.
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line("first D:ae5fb3924f47", &mut counts);
-        count_patterns_in_line("second D:b3c7cbfe916e", &mut counts);
-        assert_eq!(counts.task_id, 2);
-    }
-
-    #[test]
-    fn count_ignores_non_pattern_tokens() {
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line("random words with no patterns 12345 hello", &mut counts);
-        assert_eq!(counts.task_id, 0);
-        assert_eq!(counts.request_id, 0);
-        assert_eq!(counts.track_id, 0);
-        assert_eq!(counts.uuid, 0);
-        assert_eq!(counts.opaque_ref, 0);
-    }
-
-    #[test]
-    fn count_opaque_ref_in_compound_token() {
-        // FORMERLY a known limitation (slice 2f): the whitespace tokenizer missed
-        // patterns embedded in compound tokens. As of slice 3, regex with word
-        // boundaries detects these correctly.
-        let mut counts = PatternCounts::default();
-        count_patterns_in_line(
-            "for uuid:22b24399-2a35-a70f-78b4-3fd3f978a9d1 ref=OpaqueRef:b12859d9-2107-8341-d4c5-d027be864d45",
-            &mut counts,
-        );
-        assert_eq!(counts.uuid, 1);
-        assert_eq!(counts.opaque_ref, 1); // was 0 under whitespace tokenization
     }
 
     // --- PatternKind ---
