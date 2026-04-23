@@ -60,6 +60,12 @@ pub struct PatternCounts {
     pub opaque_ref: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogLine {
+    pub raw: String,
+    pub matches: Vec<Match>,
+}
+
 fn find_one_match(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
     re.find_iter(line)
         .map(|m| Match {
@@ -78,6 +84,11 @@ pub fn find_all_matches(line: &str) -> Vec<Match> {
 
     v.sort_by_key(|a| a.range.start);
     v
+}
+
+pub fn parse_line(raw: String) -> LogLine {
+    let matches = find_all_matches(&raw);
+    LogLine { raw, matches }
 }
 
 /// Count occurrences of each pattern in a single line using compiled regexes.
@@ -642,5 +653,60 @@ mod tests {
         let matches = find_all_matches(line);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].range.len(), 14); // "D:" + 12 hex = 14 chars
+    }
+
+    // --- LogLine / parse_line ---
+
+    #[test]
+    fn parse_line_empty_string() {
+        let log_line = parse_line(String::new());
+        assert_eq!(log_line.raw, "");
+        assert_eq!(log_line.matches.len(), 0);
+    }
+
+    #[test]
+    fn parse_line_no_patterns() {
+        let log_line = parse_line("just some text".to_string());
+        assert_eq!(log_line.raw, "just some text");
+        assert_eq!(log_line.matches.len(), 0);
+    }
+
+    #[test]
+    fn parse_line_with_one_pattern() {
+        let raw = "task D:ae5fb3924f47 done".to_string();
+        let log_line = parse_line(raw);
+        assert_eq!(log_line.raw, "task D:ae5fb3924f47 done");
+        assert_eq!(log_line.matches.len(), 1);
+        assert_eq!(log_line.matches[0].kind, PatternKind::TaskId);
+    }
+
+    #[test]
+    fn parse_line_with_multiple_patterns() {
+        let raw =
+            "Session.create trackid=7db09a594ce3e498b0143bf7270424fa D:ae5fb3924f47".to_string();
+        let log_line = parse_line(raw);
+        assert_eq!(log_line.matches.len(), 2);
+        // Verify byte order is preserved.
+        assert_eq!(log_line.matches[0].kind, PatternKind::TrackId);
+        assert_eq!(log_line.matches[1].kind, PatternKind::TaskId);
+    }
+
+    #[test]
+    fn parse_line_matches_index_into_raw_correctly() {
+        // Critical invariant: the byte ranges in matches must point to valid
+        // substrings of raw. This catches any future bug where parse_line
+        // somehow desyncs raw and matches.
+        let raw = "found D:aaaabbbbcccc here".to_string();
+        let log_line = parse_line(raw);
+        assert_eq!(log_line.matches.len(), 1);
+        let matched_text = &log_line.raw[log_line.matches[0].range.clone()];
+        assert_eq!(matched_text, "D:aaaabbbbcccc");
+    }
+
+    #[test]
+    fn parse_line_preserves_raw_text_exactly() {
+        let raw = "  weird   spacing\twith\ttabs  ".to_string();
+        let log_line = parse_line(raw.clone());
+        assert_eq!(log_line.raw, raw);
     }
 }

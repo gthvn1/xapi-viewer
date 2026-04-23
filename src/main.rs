@@ -56,5 +56,18 @@ fn main() -> std::io::Result<()> {
     println!("First line: {}", truncate_for_display(&first_line, 100));
     println!("Last line: {}", truncate_for_display(&last_line, 100));
 
+    // TEMPORARY: touch the thing...
+    use xapi_viewer::parse_line;
+    let file = File::open(&path)?;
+    let sample: Vec<_> = BufReader::new(file)
+        .lines()
+        .take(3)
+        .filter_map(|l| l.ok())
+        .map(parse_line)
+        .collect();
+    for log_line in &sample {
+        dbg!(log_line);
+    }
+
     Ok(())
 }
