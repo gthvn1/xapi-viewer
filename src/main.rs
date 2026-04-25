@@ -1,4 +1,7 @@
-use std::io::{self, stdout};
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader, stdout},
+};
 
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -10,19 +13,48 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::Paragraph,
+    widgets::{List, ListItem, Paragraph},
 };
+use xapi_viewer::{LogLine, parse_line};
+
+struct App {
+    file_path: String,
+    lines: Vec<LogLine>,
+}
+
+impl App {
+    // TODO:
+    //   - We are loading the entire file into memory. Ok for small file but not for Giga ones.
+    //   - Better handling error. Currently we stop if an error occured while reading
+    fn new(path: String) -> io::Result<Self> {
+        let file = File::open(&path)?;
+        let reader = BufReader::new(file);
+        let lines: Vec<LogLine> = reader
+            .lines()
+            .map_while(Result::ok)
+            .map(parse_line)
+            .collect();
+
+        Ok(Self {
+            file_path: path,
+            lines,
+        })
+    }
+}
 
 fn main() -> io::Result<()> {
     // Parse args: read path from command line
     let mut args = std::env::args();
-    let _path = match args.nth(1) {
+    let path = match args.nth(1) {
         None => {
             eprintln!("Usage: xapi-viewer <path>");
             std::process::exit(1);
         }
         Some(p) => p,
     };
+
+    // Load file before entering TUI mode
+    let app = App::new(path)?;
 
     // --- SETUP ---
     enable_raw_mode()?;
@@ -45,9 +77,23 @@ fn main() -> io::Result<()> {
             // Style is Copy so using it doesn't move ownership.
             let bar_style = Style::default().bg(Color::Blue).fg(Color::White);
 
-            let top_bar = Paragraph::new("xapi-viewer").style(bar_style);
-            let main_area = Paragraph::new("Middle placeholder");
+            let top_bar = Paragraph::new(format!(
+                "xapi-viewer - {} ({} lines)",
+                app.file_path,
+                app.lines.len()
+            ))
+            .style(bar_style);
+
             let bottom_bar = Paragraph::new("q=quit").style(bar_style);
+
+            let items: Vec<ListItem> = app
+                .lines
+                .iter()
+                .take(chunks[1].height as usize) // only as many as fit on screen
+                .map(|log_line| ListItem::new(log_line.raw.as_str()))
+                .collect();
+
+            let main_area = List::new(items);
 
             frame.render_widget(top_bar, chunks[0]);
             frame.render_widget(main_area, chunks[1]);
