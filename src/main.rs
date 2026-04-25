@@ -5,7 +5,13 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
+    widgets::Paragraph,
+};
 
 fn main() -> io::Result<()> {
     // Parse args: read path from command line
@@ -27,9 +33,25 @@ fn main() -> io::Result<()> {
     loop {
         // DRAW: redraw the whole screen
         terminal.draw(|frame| {
-            // For now, we render nothing, just an empty frame
-            // The frame is still valid, ratatui will clear the screen for us.
-            let _area = frame.area();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1), // top bar: exactly 1 row
+                    Constraint::Min(0),    // middle: whatever is left (at least 0)
+                    Constraint::Length(1), // bottom bar: exactly 1 row
+                ])
+                .split(frame.area());
+
+            // Style is Copy so using it doesn't move ownership.
+            let bar_style = Style::default().bg(Color::Blue).fg(Color::White);
+
+            let top_bar = Paragraph::new("xapi-viewer").style(bar_style);
+            let main_area = Paragraph::new("Middle placeholder");
+            let bottom_bar = Paragraph::new("q=quit").style(bar_style);
+
+            frame.render_widget(top_bar, chunks[0]);
+            frame.render_widget(main_area, chunks[1]);
+            frame.render_widget(bottom_bar, chunks[2]);
         })?;
 
         // EVENT: block until a key is pressed (or terminal resize).
