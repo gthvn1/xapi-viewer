@@ -1,3 +1,15 @@
+# Status
+
+- Currently we have a pager. We can load a logs and scroll with hilights of keywords like `OpaqueRef`, `Uuid`, `TaskId`, `D:xxxx` and `T:xxxx`
+- Next steps
+  - Filtering per keywords
+  - Loading multiple files
+  - Cross references with XAPI database 
+- Here is a screenshot
+<img src="screenshots/screenshot.png" alt="xapi-viewer screenshot" />
+
+# Setup
+
 - To setup the project we are using `rustup` from Nix, but the actual Rust toolchain lives in `~/.rustup`, managed by us.
   - *TODO*: check `rust-overlay`.
 
