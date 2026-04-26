@@ -14,10 +14,11 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
+    text::{Line, Span},
     widgets::{List, ListItem, Paragraph},
 };
 
-use xapi_viewer::{LogLine, parse_line};
+use xapi_viewer::{LogLine, PatternKind, parse_line};
 
 struct App {
     file_path: String,
@@ -55,6 +56,39 @@ impl App {
             self.scroll_offset += 1;
         }
     }
+}
+
+fn color_for(kind: PatternKind) -> Color {
+    match kind {
+        PatternKind::TaskId => Color::Yellow,
+        PatternKind::RequestId => Color::Cyan,
+        PatternKind::TrackId => Color::Magenta,
+        PatternKind::Uuid => Color::Green,
+        PatternKind::OpaqueRef => Color::Red,
+    }
+}
+
+fn render_log_line(log_line: &LogLine) -> ListItem<'_> {
+    let mut cursor = 0;
+    let mut spans = Vec::new();
+
+    for m in &log_line.matches {
+        if m.range.start > cursor {
+            spans.push(Span::raw(&log_line.raw[cursor..m.range.start]));
+        }
+        spans.push(Span::styled(
+            &log_line.raw[m.range.clone()], // Range isn't Copy, need clone
+            color_for(m.kind),
+        ));
+        cursor = m.range.end;
+    }
+
+    if cursor < log_line.raw.len() {
+        spans.push(Span::raw(&log_line.raw[cursor..log_line.raw.len()]));
+    }
+
+    let line = Line::from(spans);
+    ListItem::new(line)
 }
 
 fn main() -> io::Result<()> {
@@ -107,7 +141,7 @@ fn main() -> io::Result<()> {
                 .iter()
                 .skip(app.scroll_offset)
                 .take(chunks[1].height as usize) // only as many as fit on screen
-                .map(|log_line| ListItem::new(log_line.raw.as_str()))
+                .map(render_log_line)
                 .collect();
 
             let main_area = List::new(items);
