@@ -1,10 +1,10 @@
 # Status
 
-- Currently we have a pager. We can load a logs and scroll with hilights of keywords like `OpaqueRef`, `Uuid`, `TaskId`, `D:xxxx` and `T:xxxx`
-- Next steps
-  - Filtering per keywords
-  - Loading multiple files
-  - Cross references with XAPI database 
+- Currently we have a pager. We can load logs and scroll with highlights of keywords like `OpaqueRef`, `Uuid`, `TaskId`, `D:xxxx` and `T:xxxx`.
+- Next steps:
+  - Filter by keywords
+  - Load multiple files
+  - Cross-reference with the XAPI database
 - Here is a screenshot
 <img src="screenshots/screenshot.png" alt="xapi-viewer screenshot" />
 
