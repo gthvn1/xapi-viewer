@@ -4,7 +4,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -24,6 +24,8 @@ struct App {
     file_path: String,
     lines: Vec<LogLine>,
     scroll_offset: usize,
+    pending_g: bool, // used to track 'g' pressed twice
+    visible_height: usize,
 }
 
 impl App {
@@ -43,17 +45,27 @@ impl App {
             file_path: path,
             lines,
             scroll_offset: 0,
+            pending_g: false,
+            visible_height: 0, // will be updated each render
         })
     }
 
-    fn scroll_up(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+    fn scroll_to_top(&mut self) {
+        self.scroll_offset = 0;
     }
 
-    fn scroll_down(&mut self) {
+    fn scroll_to_bottom(&mut self) {
+        self.scroll_offset = self.lines.len().saturating_sub(1);
+    }
+
+    fn scroll_up_by(&mut self, n: usize) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(n);
+    }
+
+    fn scroll_down_by(&mut self, n: usize) {
         // Don't scroll past the end
-        if self.scroll_offset < self.lines.len().saturating_sub(1) {
-            self.scroll_offset += 1;
+        if self.scroll_offset < self.lines.len().saturating_sub(n) {
+            self.scroll_offset += n;
         }
     }
 }
@@ -124,7 +136,7 @@ fn main() -> io::Result<()> {
                 .split(frame.area());
 
             // Style is Copy so using it doesn't move ownership.
-            let bar_style = Style::default().bg(Color::Blue).fg(Color::White);
+            let bar_style = Style::default().bg(Color::LightGreen).fg(Color::Black);
 
             let top_bar = Paragraph::new(format!(
                 "xapi-viewer - {} ({}/{})",
@@ -134,7 +146,9 @@ fn main() -> io::Result<()> {
             ))
             .style(bar_style);
 
-            let bottom_bar = Paragraph::new("q=quit  j/↓=down  k/↑=up").style(bar_style);
+            let bottom_bar =
+                Paragraph::new("q=quit  j/k=line  Ctrl-u/d=half  PgUp/PgDn=page  gg/G=top/bot")
+                    .style(bar_style);
 
             let items: Vec<ListItem> = app
                 .lines
@@ -151,13 +165,43 @@ fn main() -> io::Result<()> {
             frame.render_widget(bottom_bar, chunks[2]);
         })?;
 
+        // Read terminal size outside the closure, so no need to mutate app in it.
+        let term_size = terminal.size()?;
+        app.visible_height = (term_size.height as usize).saturating_sub(2); // minus top + bottom
+
         // EVENT: block until a key is pressed (or terminal resize).
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => break,
-                KeyCode::Char('j') | KeyCode::Down => app.scroll_down(),
-                KeyCode::Char('k') | KeyCode::Up => app.scroll_up(),
-                _ => {} // ignore other keys
+            let full_page = app.visible_height;
+            let half_page = full_page / 2;
+
+            // Handle 'g' specially (multi-key sequence). Continues early.
+            if key.code == KeyCode::Char('g') {
+                if app.pending_g {
+                    app.scroll_to_top();
+                    app.pending_g = false;
+                } else {
+                    app.pending_g = true;
+                }
+                continue;
+            }
+
+            // Any other key resets the pending state and falls through to the match.
+            app.pending_g = false;
+            match (key.code, key.modifiers) {
+                (KeyCode::Char('q'), _) => break,
+                // Scroll down
+                (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.scroll_down_by(1),
+                (KeyCode::PageDown, _) => app.scroll_down_by(full_page),
+                (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.scroll_down_by(half_page),
+                // Scroll up
+                (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_up_by(1),
+                (KeyCode::PageUp, _) => app.scroll_up_by(full_page),
+                (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.scroll_up_by(half_page),
+                // Scroll top and bottom
+                (KeyCode::Home, _) => app.scroll_to_top(),
+                (KeyCode::Char('G'), _) | (KeyCode::End, _) => app.scroll_to_bottom(),
+                // ignore other keys
+                _ => {}
             }
         }
     }
