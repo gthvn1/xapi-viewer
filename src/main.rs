@@ -13,7 +13,7 @@ use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, Paragraph},
 };
@@ -26,6 +26,7 @@ struct App {
     scroll_offset: usize,
     pending_g: bool, // used to track 'g' pressed twice
     visible_height: usize,
+    selected: Option<(usize, usize)>, // (index into "lines", index into matches)
 }
 
 impl App {
@@ -47,6 +48,7 @@ impl App {
             scroll_offset: 0,
             pending_g: false,
             visible_height: 0, // will be updated each render
+            selected: None,
         })
     }
 
@@ -68,6 +70,90 @@ impl App {
             self.scroll_offset += n;
         }
     }
+
+    fn ensure_selected_visible(&mut self) {
+        if let Some((line_idx, _)) = self.selected {
+            if line_idx < self.scroll_offset {
+                self.scroll_offset = line_idx; // scrolled too far down
+            } else if line_idx >= self.scroll_offset + self.visible_height {
+                self.scroll_offset = line_idx.saturating_sub(self.visible_height - 1);
+            }
+        }
+    }
+
+    // Select and ensure that selection is visible
+    fn select(&mut self, sel: (usize, usize)) {
+        self.selected = Some(sel);
+        self.ensure_selected_visible();
+    }
+
+    fn select_next_match(&mut self) {
+        let (line_idx, match_idx) = match self.selected {
+            Some((line_idx, match_idx)) => (line_idx, match_idx),
+            None => {
+                // Nothing selected yet, pick first match. For first-time selection we
+                // anchor to viewport.
+                for idx in self.scroll_offset..self.lines.len() {
+                    if !self.lines[idx].matches.is_empty() {
+                        self.select((idx, 0));
+                        return;
+                    }
+                }
+                return; // no matches now in visible area, do nothing
+            }
+        };
+
+        // It is an existing selection, find next match.
+        if match_idx + 1 < self.lines[line_idx].matches.len() {
+            self.select((line_idx, match_idx + 1));
+            return;
+        }
+
+        // We don't find a match on line_idx, try next ones
+        for next_line in (line_idx + 1)..self.lines.len() {
+            if !self.lines[next_line].matches.is_empty() {
+                self.select((next_line, 0));
+                return;
+            }
+        }
+
+        // Don't wrap yet. If a file as no matches we may loop forever
+        // TODO: Print a message that we are at the end of the file. Need to have
+        //       a debug area or something.
+    }
+
+    fn select_prev_match(&mut self) {
+        let (line_idx, match_idx) = match self.selected {
+            Some((line_idx, match_idx)) => (line_idx, match_idx),
+            None => {
+                for idx in (0..self.scroll_offset).rev() {
+                    if !self.lines[idx].matches.is_empty() {
+                        self.select((idx, self.lines[idx].matches.len() - 1));
+                        return;
+                    }
+                }
+                return; // no match found. Don't wrap by the end of the file for now
+            }
+        };
+
+        // Find previous match on the current line
+        if match_idx > 0 {
+            self.select((line_idx, match_idx - 1));
+            return;
+        }
+
+        // We don't find a match on line_idx, try previous ones
+        for prev_line in (0..line_idx).rev() {
+            if !self.lines[prev_line].matches.is_empty() {
+                self.select((prev_line, self.lines[prev_line].matches.len() - 1));
+                return;
+            }
+        }
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected = None;
+    }
 }
 
 fn color_for(kind: PatternKind) -> Color {
@@ -80,17 +166,26 @@ fn color_for(kind: PatternKind) -> Color {
     }
 }
 
-fn render_log_line(log_line: &LogLine) -> ListItem<'_> {
+fn render_log_line(log_line: &LogLine, selected_match_idx: Option<usize>) -> ListItem<'_> {
     let mut cursor = 0;
     let mut spans = Vec::new();
 
-    for m in &log_line.matches {
+    for (i, m) in log_line.matches.iter().enumerate() {
+        // The style of the match depends if it is selected or not
+        let style = if Some(i) == selected_match_idx {
+            Style::default()
+                .fg(color_for(m.kind))
+                .add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default().fg(color_for(m.kind))
+        };
+
         if m.range.start > cursor {
             spans.push(Span::raw(&log_line.raw[cursor..m.range.start]));
         }
         spans.push(Span::styled(
             &log_line.raw[m.range.clone()], // Range isn't Copy, need clone
-            color_for(m.kind),
+            style,
         ));
         cursor = m.range.end;
     }
@@ -147,15 +242,22 @@ fn main() -> io::Result<()> {
             .style(bar_style);
 
             let bottom_bar =
-                Paragraph::new("q=quit  j/k=line  Ctrl-u/d=half  PgUp/PgDn=page  gg/G=top/bot")
+                Paragraph::new("q=quit  j/k=line  Ctrl-u/d=half  PgUp/PgDn=page  gg/G=top/bot  Tab/S-Tab=match  Esc=unsel")
                     .style(bar_style);
 
             let items: Vec<ListItem> = app
                 .lines
                 .iter()
+                .enumerate()
                 .skip(app.scroll_offset)
                 .take(chunks[1].height as usize) // only as many as fit on screen
-                .map(render_log_line)
+                .map(|(line_idx, log_line)| {
+                    let selected_match_idx = match app.selected {
+                        Some((sel_line, sel_match)) if sel_line == line_idx => Some(sel_match),
+                        _ => None,
+                    };
+                    render_log_line(log_line, selected_match_idx)
+                })
                 .collect();
 
             let main_area = List::new(items);
@@ -200,6 +302,10 @@ fn main() -> io::Result<()> {
                 // Scroll top and bottom
                 (KeyCode::Home, _) => app.scroll_to_top(),
                 (KeyCode::Char('G'), _) | (KeyCode::End, _) => app.scroll_to_bottom(),
+                // Select/Unselect matches
+                (KeyCode::Esc, _) => app.clear_selection(),
+                (KeyCode::Tab, _) => app.select_next_match(),
+                (KeyCode::BackTab, _) => app.select_prev_match(),
                 // ignore other keys
                 _ => {}
             }
