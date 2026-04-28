@@ -110,6 +110,7 @@ impl App {
 
     fn ensure_selected_visible(&mut self) {
         let Some((line_idx, _)) = self.selected else {
+            eprintln!("nothing is selected");
             return;
         };
 
@@ -120,7 +121,10 @@ impl App {
         // TODO: position is O(n) and won't scale well. Implement a HashMap<usize,usize>
         // to map absolute -> visible position when needed.
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
-            eprintln!("It is a bug? selected is not part of visible lines");
+            eprintln!(
+                "It is a bug? selected line_idx {} is not part of visible lines",
+                line_idx
+            );
             return;
         };
 
@@ -165,7 +169,10 @@ impl App {
 
         // We don't find a match on line_idx, try next ones
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
-            eprintln!("It is a bug? failed to find line_idx in select_next_match");
+            eprintln!(
+                "It is a bug? failed to find line_idx {} in select_next_match",
+                line_idx
+            );
             return;
         };
 
@@ -204,7 +211,10 @@ impl App {
 
         // We don't find a match on line_idx, try previous ones
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
-            eprintln!("It is a bug? failed to find line_idx in select_prev_match");
+            eprintln!(
+                "It is a bug? failed to find line_idx {} in select_prev_match",
+                line_idx
+            );
             return;
         };
 
@@ -221,11 +231,6 @@ impl App {
     }
 
     fn recompute_visible(&mut self) {
-        // Reset scroll offset.
-        // Note: We deliberately KEEP self.selected.
-        // The user can press Enter again to remove that filter (toggle behavior).
-        self.scroll_offset = 0;
-
         if self.active_filters.is_empty() {
             // No filters: every line is visible
             self.visible_lines = (0..self.lines.len()).collect();
@@ -249,6 +254,16 @@ impl App {
         let lim = self.visible_lines.len().min(10);
         let slice = &self.visible_lines[..lim];
         eprintln!("first indices of visible_lines: {:?}", slice);
+
+        // Reset scroll offset.
+        // Note: We deliberately KEEP self.selected if it is still visible.
+        // The user can press Enter again to remove that filter (toggle behavior).
+        self.scroll_offset = 0;
+        if let Some((current_selected_line, _)) = self.selected
+            && !self.visible_lines.contains(&current_selected_line)
+        {
+            self.selected = None;
+        }
     }
 }
 
