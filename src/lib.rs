@@ -72,7 +72,22 @@ pub fn find_all_matches(line: &str) -> Vec<Match> {
     v.extend(find_one_match(&OPAQUE_REF_RE, PatternKind::OpaqueRef, line));
 
     v.sort_by_key(|a| a.range.start);
-    v
+
+    // OpaqueRef and UUID overlap, only keep OpaqueRef in this case
+    let mut filtered: Vec<Match> = Vec::new();
+
+    for m in v {
+        if let Some(prev) = filtered.last()
+            && m.range.start < prev.range.end
+        {
+            // Overlap detected: we assume that OpaqueRef is the first one
+            continue;
+        }
+
+        filtered.push(m);
+    }
+
+    filtered
 }
 
 pub fn parse_line(raw: String) -> LogLine {
