@@ -1,8 +1,8 @@
 # Status
 
-- Currently we have a pager. We can load logs and scroll with highlights of keywords like `OpaqueRef`, `Uuid`, `TaskId`, `D:xxxx` and `T:xxxx`.
+- Currently we have a pager. We can load logs and scroll with highlights of keywords like `TaskId` (`D:xxxx`), `RequestId` (`R:xxxx`), `TrackId` (`trackid=xxxx`), `Uuid` (`uuid:xxxx`), and `OpaqueRef` (`OpaqueRef:xxxx`).
+- Filtering by keyword is supported: navigate to a match with Tab/Shift-Tab, then press Enter to toggle it as an active filter.
 - Next steps:
-  - Filter by keywords
   - Load multiple files
   - Cross-reference with the XAPI database
 - Run: `cargo run -- samples/xenstore.log 2>/tmp/debug.log`
