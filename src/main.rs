@@ -129,7 +129,7 @@ impl App {
         if pos < self.scroll_offset {
             self.scroll_offset = pos; // scrolled too far down
         } else if pos >= self.scroll_offset + self.visible_height {
-            self.scroll_offset = line_idx.saturating_sub(self.visible_height.saturating_sub(1));
+            self.scroll_offset = pos.saturating_sub(self.visible_height.saturating_sub(1));
         }
     }
 
@@ -164,14 +164,15 @@ impl App {
         }
 
         // We don't find a match on line_idx, try next ones
-        let current_pos = self.visible_lines.iter().position(|&i| i == line_idx);
-        if let Some(pos) = current_pos {
-            for vis_idx in (pos + 1)..self.visible_lines.len() {
-                let next_line = self.visible_lines[vis_idx];
-                if !self.lines[next_line].matches.is_empty() {
-                    self.select((next_line, 0));
-                    return;
-                }
+        let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
+            eprintln!("It is a bug? failed to find line_idx in select_next_match");
+            return;
+        };
+
+        for &next_line in self.visible_lines[pos + 1..].iter() {
+            if !self.lines[next_line].matches.is_empty() {
+                self.select((next_line, 0));
+                return;
             }
         }
 
@@ -202,9 +203,12 @@ impl App {
         }
 
         // We don't find a match on line_idx, try previous ones
-        let count = self.visible_lines.partition_point(|&idx| idx <= line_idx);
-        let visible_range = &self.visible_lines[..count - 1];
-        for &prev_line in visible_range.iter().rev() {
+        let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
+            eprintln!("It is a bug? failed to find line_idx in select_prev_match");
+            return;
+        };
+
+        for &prev_line in self.visible_lines[..pos].iter().rev() {
             if !self.lines[prev_line].matches.is_empty() {
                 self.select((prev_line, self.lines[prev_line].matches.len() - 1));
                 return;
