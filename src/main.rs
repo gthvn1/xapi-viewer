@@ -87,36 +87,56 @@ impl App {
 
     fn scroll_to_top(&mut self) {
         self.scroll_offset = 0;
+        eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
     fn scroll_to_bottom(&mut self) {
-        self.scroll_offset = self.lines.len().saturating_sub(1);
+        self.scroll_offset = self.visible_lines.len().saturating_sub(1);
+        eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
     fn scroll_up_by(&mut self, n: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
+        eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
     fn scroll_down_by(&mut self, n: usize) {
         // Don't scroll past the end
-        if self.scroll_offset < self.lines.len().saturating_sub(n) {
+        if self.scroll_offset < self.visible_lines.len().saturating_sub(n) {
             self.scroll_offset += n;
         }
+        eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
     fn ensure_selected_visible(&mut self) {
-        if let Some((line_idx, _)) = self.selected {
-            if line_idx < self.scroll_offset {
-                self.scroll_offset = line_idx; // scrolled too far down
-            } else if line_idx >= self.scroll_offset + self.visible_height {
-                self.scroll_offset = line_idx.saturating_sub(self.visible_height - 1);
-            }
+        let Some((line_idx, _)) = self.selected else {
+            return;
+        };
+
+        // Here line_idx is an index in self.lines.
+        // For example we can have visible_lines = [3, 47, 333]
+        // and user selects 333. We need to find where it is in visible_lines.
+        //
+        // TODO: position is O(n) and won't scale well. Implement a HashMap<usize,usize>
+        // to map absolute -> visible position when needed.
+        let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
+            eprintln!("It is a bug? selected is not part of visible lines");
+            return;
+        };
+
+        // scroll_offset is an index into visible_lines, so we can compare it
+        // to pos.
+        if pos < self.scroll_offset {
+            self.scroll_offset = pos; // scrolled too far down
+        } else if pos >= self.scroll_offset + self.visible_height {
+            self.scroll_offset = line_idx.saturating_sub(self.visible_height.saturating_sub(1));
         }
     }
 
     // Select and ensure that selection is visible
     fn select(&mut self, sel: (usize, usize)) {
         self.selected = Some(sel);
+        eprintln!("selected set to {:?}", sel);
         self.ensure_selected_visible();
     }
 
@@ -126,9 +146,10 @@ impl App {
             None => {
                 // Nothing selected yet, pick first match. For first-time selection we
                 // anchor to viewport.
-                for idx in self.scroll_offset..self.lines.len() {
-                    if !self.lines[idx].matches.is_empty() {
-                        self.select((idx, 0));
+                for vis_idx in self.scroll_offset..self.visible_lines.len() {
+                    let line_idx = self.visible_lines[vis_idx];
+                    if !self.lines[line_idx].matches.is_empty() {
+                        self.select((line_idx, 0));
                         return;
                     }
                 }
@@ -143,10 +164,14 @@ impl App {
         }
 
         // We don't find a match on line_idx, try next ones
-        for next_line in (line_idx + 1)..self.lines.len() {
-            if !self.lines[next_line].matches.is_empty() {
-                self.select((next_line, 0));
-                return;
+        let current_pos = self.visible_lines.iter().position(|&i| i == line_idx);
+        if let Some(pos) = current_pos {
+            for vis_idx in (pos + 1)..self.visible_lines.len() {
+                let next_line = self.visible_lines[vis_idx];
+                if !self.lines[next_line].matches.is_empty() {
+                    self.select((next_line, 0));
+                    return;
+                }
             }
         }
 
@@ -159,7 +184,8 @@ impl App {
         let (line_idx, match_idx) = match self.selected {
             Some((line_idx, match_idx)) => (line_idx, match_idx),
             None => {
-                for idx in (0..self.scroll_offset).rev() {
+                let visible_range = &self.visible_lines[..self.scroll_offset];
+                for &idx in visible_range.iter().rev() {
                     if !self.lines[idx].matches.is_empty() {
                         self.select((idx, self.lines[idx].matches.len() - 1));
                         return;
@@ -176,7 +202,9 @@ impl App {
         }
 
         // We don't find a match on line_idx, try previous ones
-        for prev_line in (0..line_idx).rev() {
+        let count = self.visible_lines.partition_point(|&idx| idx <= line_idx);
+        let visible_range = &self.visible_lines[..count - 1];
+        for &prev_line in visible_range.iter().rev() {
             if !self.lines[prev_line].matches.is_empty() {
                 self.select((prev_line, self.lines[prev_line].matches.len() - 1));
                 return;
@@ -189,9 +217,10 @@ impl App {
     }
 
     fn recompute_visible(&mut self) {
-        // Reset scroll offset and selection
+        // Reset scroll offset.
+        // Note: We deliberately KEEP self.selected.
+        // The user can press Enter again to remove that filter (toggle behavior).
         self.scroll_offset = 0;
-        self.selected = None;
 
         if self.active_filters.is_empty() {
             // No filters: every line is visible
@@ -211,6 +240,11 @@ impl App {
                 .map(|(idx, _)| idx)
                 .collect();
         }
+
+        // Let's print the first 10 values of visible lines
+        let lim = self.visible_lines.len().min(10);
+        let slice = &self.visible_lines[..lim];
+        eprintln!("first indices of visible_lines: {:?}", slice);
     }
 }
 
@@ -241,6 +275,7 @@ fn render_log_line(log_line: &LogLine, selected_match_idx: Option<usize>) -> Lis
         if m.range.start > cursor {
             spans.push(Span::raw(&log_line.raw[cursor..m.range.start]));
         }
+
         spans.push(Span::styled(
             &log_line.raw[m.range.clone()], // Range isn't Copy, need clone
             style,
