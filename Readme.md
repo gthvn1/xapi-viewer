@@ -5,7 +5,7 @@
 - Next steps:
   - Load multiple files
   - Cross-reference with the XAPI database
-- Run: `cargo run -- samples/xenstore.log 2>/tmp/debug.log`
+- Run: `cargo run -- samples/xensource.log 2>/tmp/debug.log`
   - Use your own logs
   - Don't forget to redirect stderr.
 - Here is a screenshot
