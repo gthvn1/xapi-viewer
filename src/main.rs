@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs::File,
     io::{self, BufRead, BufReader, stdout},
 };
@@ -20,13 +21,41 @@ use ratatui::{
 
 use xapi_viewer::{LogLine, PatternKind, parse_line};
 
+/// Application state for the TUI.
+///
+/// # Invariants
+/// - `visible_lines` contains indices into `lines` that pass `active_filters`.
+///   When `active_filters` is empty, `visible_lines == (0..lines.len()).collect()`.
+/// - `scroll_offset` indexes into `visible_lines`, NOT `lines` directly.
+///   Reset to 0 when filters change.
+/// - `selected` references absolute line indices into `lines`. May refer to a line not
+///   currently in `visible_lines` if filters changed: rendering handles this gracefully
+///   (no inverse-video drawn for hidden lines).
 struct App {
     file_path: String,
+    /// The full parsed file. Never mutated after construction. Order matters.
     lines: Vec<LogLine>,
+
+    /// Indices into `lines` that pass `active_filters`. Recomputed by `recompute_visible`
+    /// whenever filters change.
+    visible_lines: Vec<usize>,
+
+    /// Index into `visible_lines` of the top visible row. Reset to 0 when filters change.
     scroll_offset: usize,
-    pending_g: bool, // used to track 'g' pressed twice
+
+    /// Used to track 'g' pressed twice.
+    pending_g: bool,
+
+    /// This is the size of the `main_area`.
     visible_height: usize,
-    selected: Option<(usize, usize)>, // (index into "lines", index into matches)
+
+    /// Currently selected match: `(absolute_line_idx, match_idx_within_line)`.
+    /// `None` means nothing selected. Cleared when filters change.
+    selected: Option<(usize, usize)>,
+
+    /// User-added filter tokens. OR semantics: a line is visible if it contains any of these
+    /// substrings.
+    active_filters: HashSet<String>,
 }
 
 impl App {
@@ -41,6 +70,8 @@ impl App {
             .map_while(Result::ok)
             .map(parse_line)
             .collect();
+        // When app starts there is no filters, all lines are visible
+        let visible_lines = (0..lines.len()).collect();
 
         Ok(Self {
             file_path: path,
@@ -49,6 +80,8 @@ impl App {
             pending_g: false,
             visible_height: 0, // will be updated each render
             selected: None,
+            active_filters: HashSet::new(),
+            visible_lines,
         })
     }
 
@@ -154,6 +187,31 @@ impl App {
     fn clear_selection(&mut self) {
         self.selected = None;
     }
+
+    fn recompute_visible(&mut self) {
+        // Reset scroll offset and selection
+        self.scroll_offset = 0;
+        self.selected = None;
+
+        if self.active_filters.is_empty() {
+            // No filters: every line is visible
+            self.visible_lines = (0..self.lines.len()).collect();
+        } else {
+            // For each line we check if any of filters belongs to the line
+            // TODO: it will probably not scale for million lines of logs...
+            self.visible_lines = self
+                .lines
+                .iter()
+                .enumerate()
+                .filter(|(_, log_line)| {
+                    self.active_filters
+                        .iter()
+                        .any(|f| log_line.raw.contains(f.as_str()))
+                })
+                .map(|(idx, _)| idx)
+                .collect();
+        }
+    }
 }
 
 fn color_for(kind: PatternKind) -> Color {
@@ -233,27 +291,36 @@ fn main() -> io::Result<()> {
             // Style is Copy so using it doesn't move ownership.
             let bar_style = Style::default().bg(Color::LightGreen).fg(Color::Black);
 
-            let top_bar = Paragraph::new(format!(
-                "xapi-viewer - {} ({}/{})",
-                app.file_path,
-                app.scroll_offset + 1,
-                app.lines.len()
-            ))
-            .style(bar_style);
+            let top_text = if app.active_filters.is_empty() {
+                format!(
+                    "xapi-viewer - {} ({}/{})",
+                    app.file_path,
+                    app.scroll_offset + 1,
+                    app.lines.len())
+            } else {
+                format!(
+                    "xapi-viewer - {} ({}/{}) filtered, {} active",
+                    app.file_path,
+                    app.scroll_offset + 1,
+                    app.visible_lines.len(),
+                    app.active_filters.len())
+            };
+
+            let top_bar = Paragraph::new(top_text).style(bar_style);
 
             let bottom_bar =
                 Paragraph::new("q=quit  j/k=line  Ctrl-u/d=half  PgUp/PgDn=page  gg/G=top/bot  Tab/S-Tab=match  Esc=unsel")
                     .style(bar_style);
 
             let items: Vec<ListItem> = app
-                .lines
+                .visible_lines
                 .iter()
-                .enumerate()
                 .skip(app.scroll_offset)
                 .take(chunks[1].height as usize) // only as many as fit on screen
-                .map(|(line_idx, log_line)| {
+                .map(|&abs_idx| {
+                    let log_line = &app.lines[abs_idx];
                     let selected_match_idx = match app.selected {
-                        Some((sel_line, sel_match)) if sel_line == line_idx => Some(sel_match),
+                        Some((sel_line, sel_match)) if sel_line == abs_idx => Some(sel_match),
                         _ => None,
                     };
                     render_log_line(log_line, selected_match_idx)
@@ -306,6 +373,25 @@ fn main() -> io::Result<()> {
                 (KeyCode::Esc, _) => app.clear_selection(),
                 (KeyCode::Tab, _) => app.select_next_match(),
                 (KeyCode::BackTab, _) => app.select_prev_match(),
+                // Toggle match in active filters
+                (KeyCode::Enter, _) => {
+                    if let Some((line_idx, match_idx)) = app.selected {
+                        let log_line = &app.lines[line_idx];
+                        let m = &log_line.matches[match_idx];
+                        let token = log_line.raw[m.range.clone()].to_string();
+
+                        if app.active_filters.contains(&token) {
+                            eprintln!("{} removed from active filters", &token);
+                            app.active_filters.remove(&token);
+                        } else {
+                            eprintln!("{} added in active filters", &token);
+                            app.active_filters.insert(token);
+                        }
+                        app.recompute_visible();
+                    } else {
+                        eprintln!("You must select a tag before adding it in active filters");
+                    }
+                }
                 // ignore other keys
                 _ => {}
             }
