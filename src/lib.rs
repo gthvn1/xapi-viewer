@@ -23,10 +23,8 @@ static TRACK_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\btrackid=[0-9a-fA-F]{32}\b").expect("TRACK_ID_RE regex is invalid")
 });
 static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"\buuid:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
-    )
-    .expect("UUID_RE regex is invalid")
+    Regex::new(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+        .expect("UUID_RE regex is invalid")
 });
 
 static OPAQUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
