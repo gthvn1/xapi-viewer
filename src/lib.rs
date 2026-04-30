@@ -80,7 +80,10 @@ pub fn find_all_matches(line: &str) -> Vec<Match> {
         if let Some(prev) = filtered.last()
             && m.range.start < prev.range.end
         {
-            // Overlap detected: we assume that OpaqueRef is the first one
+            // Overlap detected:
+            // Drop matches that start inside the previous (already-kept) match.
+            // OpaqueRef:UUID always wins over the bare UUID inside it because OpaqueRef
+            // starts earlier and is therefore kept first by the sort.
             continue;
         }
 
@@ -562,6 +565,14 @@ mod tests {
         let matches = find_all_matches(line);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].range.len(), 14); // "D:" + 12 hex = 14 chars
+    }
+
+    #[test]
+    fn find_all_matches_dedupes_uuid_inside_opaque_ref() {
+        let line = "ref OpaqueRef:b12859d9-2107-8341-d4c5-d027be864d45 done";
+        let matches = find_all_matches(line);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].kind, PatternKind::OpaqueRef);
     }
 
     // --- LogLine / parse_line ---
