@@ -61,7 +61,7 @@ struct App {
 impl App {
     // TODO:
     //   - We are loading the entire file into memory. Ok for small file but not for Giga ones.
-    //   - Better handling error. Currently we stop if an error occured while reading
+    //   - Better error handling. Currently we stop if an error occurred while reading
     fn new(path: String) -> io::Result<Self> {
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
@@ -122,7 +122,7 @@ impl App {
         // to map absolute -> visible position when needed.
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
             eprintln!(
-                "It is a bug? selected line_idx {} is not part of visible lines",
+                "Is it a bug? selected line_idx {} is not part of visible lines",
                 line_idx
             );
             return;
@@ -170,7 +170,7 @@ impl App {
         // We don't find a match on line_idx, try next ones
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
             eprintln!(
-                "It is a bug? failed to find line_idx {} in select_next_match",
+                "Is it a bug? failed to find line_idx {} in select_next_match",
                 line_idx
             );
             return;
@@ -183,7 +183,7 @@ impl App {
             }
         }
 
-        // Don't wrap yet. If a file as no matches we may loop forever
+        // Don't wrap yet. If a file has no matches we may loop forever
         // TODO: Print a message that we are at the end of the file. Need to have
         //       a debug area or something.
     }
@@ -212,7 +212,7 @@ impl App {
         // We don't find a match on line_idx, try previous ones
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
             eprintln!(
-                "It is a bug? failed to find line_idx {} in select_prev_match",
+                "Is it a bug? failed to find line_idx {} in select_prev_match",
                 line_idx
             );
             return;
@@ -235,7 +235,7 @@ impl App {
             // No filters: every line is visible
             self.visible_lines = (0..self.lines.len()).collect();
         } else {
-            // For each line we check if any of filters belongs to the line
+            // For each line we check if any of the filters belongs to the line
             // TODO: it will probably not scale for million lines of logs...
             self.visible_lines = self
                 .lines

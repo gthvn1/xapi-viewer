@@ -11,5 +11,5 @@
 ## src/main.rs
 
 - `lines()` is one allocation for string and one drop when last_line is overwritten
-- `last_line` takes the ownership (copy pointer,length and capacity of allocated string)
+- `last_line` takes the ownership (copy pointer, length and capacity of allocated string)
 
