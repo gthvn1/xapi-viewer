@@ -103,8 +103,8 @@ fn is_hex_id_with_prefix(s: &str, prefix: &str, hex_len: usize) -> bool {
     }
 }
 
-// Return true if s is of form XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-// where X is an hexadecimal digit
+// Return true if s is of the form XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+// where X is a hexadecimal digit
 fn is_uuid_shaped(s: &str) -> bool {
     let part_len = [8, 4, 4, 4, 12];
     let parts: Vec<&str> = s.split('-').collect();
@@ -537,7 +537,7 @@ mod tests {
         assert_eq!(matches[0].kind, PatternKind::Uuid);
         assert_eq!(
             &line[matches[0].range.clone()],
-            "uuid:ef6e722e-a0fe-f91e-7c02-09ae2a256f7f"
+            "ef6e722e-a0fe-f91e-7c02-09ae2a256f7f"
         );
     }
 
