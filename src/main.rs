@@ -88,10 +88,6 @@ impl App {
         })
     }
 
-    fn clear_filters(&mut self) {
-        self.active_filters.clear();
-    }
-
     fn scroll_to_top(&mut self) {
         self.scroll_offset = 0;
         eprintln!("set scroll_offset to {}", self.scroll_offset);
@@ -267,6 +263,11 @@ impl App {
     fn clear_selection(&mut self) {
         self.selected = None;
         self.recompute_visible();
+    }
+
+    fn clear_filters(&mut self) {
+        self.active_filters.clear();
+        self.clear_selection();
     }
 
     fn recompute_visible(&mut self) {
