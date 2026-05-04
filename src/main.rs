@@ -19,7 +19,10 @@ use ratatui::{
     widgets::{List, ListItem, Paragraph},
 };
 
-use xapi_viewer::{LogLine, PatternKind, parse_line};
+use xapi_viewer::{LogLine, PatternKind, first_match_idx, last_match_idx, parse_line};
+
+const TOP_BAR_HEIGHT: u16 = 1;
+const BOTTOM_BAR_HEIGHT: u16 = 2;
 
 /// Application state for the TUI.
 ///
@@ -85,6 +88,10 @@ impl App {
         })
     }
 
+    fn clear_filters(&mut self) {
+        self.active_filters.clear();
+    }
+
     fn scroll_to_top(&mut self) {
         self.scroll_offset = 0;
         eprintln!("set scroll_offset to {}", self.scroll_offset);
@@ -128,6 +135,11 @@ impl App {
             return;
         };
 
+        eprintln!(
+            "ensure_selected_visible: pos={} scroll_offset={} visible_height={}",
+            pos, self.scroll_offset, self.visible_height
+        );
+
         // scroll_offset is an index into visible_lines, so we can compare it
         // to pos.
         if pos < self.scroll_offset {
@@ -144,23 +156,23 @@ impl App {
         self.ensure_selected_visible();
     }
 
-    fn select_next_match(&mut self) {
+    fn select_next_match(&mut self, kind: Option<PatternKind>) {
         let (line_idx, match_idx) = match self.selected {
             Some((line_idx, match_idx)) => (line_idx, match_idx),
             None => {
                 // Nothing selected yet, pick first match. For first-time selection we
                 // anchor to viewport.
                 for &line_idx in self.visible_lines[self.scroll_offset..].iter() {
-                    if !self.lines[line_idx].matches.is_empty() {
-                        self.select((line_idx, 0));
+                    if let Some(idx) = first_match_idx(&self.lines[line_idx].matches, kind) {
+                        self.select((line_idx, idx));
                         return;
                     }
                 }
 
                 // Wrap and try from the beginning
                 for &line_idx in self.visible_lines[0..self.scroll_offset].iter() {
-                    if !self.lines[line_idx].matches.is_empty() {
-                        self.select((line_idx, 0));
+                    if let Some(idx) = first_match_idx(&self.lines[line_idx].matches, kind) {
+                        self.select((line_idx, idx));
                         return;
                     }
                 }
@@ -170,8 +182,8 @@ impl App {
         };
 
         // It is an existing selection, find next match.
-        if match_idx + 1 < self.lines[line_idx].matches.len() {
-            self.select((line_idx, match_idx + 1));
+        if let Some(idx) = first_match_idx(&self.lines[line_idx].matches[match_idx + 1..], kind) {
+            self.select((line_idx, match_idx + 1 + idx));
             return;
         }
 
@@ -185,35 +197,35 @@ impl App {
         };
 
         for &next_line in self.visible_lines[pos + 1..].iter() {
-            if !self.lines[next_line].matches.is_empty() {
-                self.select((next_line, 0));
+            if let Some(idx) = first_match_idx(&self.lines[next_line].matches, kind) {
+                self.select((next_line, idx));
                 return;
             }
         }
 
         // We reach the end of visible_lines and we don't find anything. Wrap from beginning.
         for &next_line in self.visible_lines[..pos].iter() {
-            if !self.lines[next_line].matches.is_empty() {
-                self.select((next_line, 0));
+            if let Some(idx) = first_match_idx(&self.lines[next_line].matches, kind) {
+                self.select((next_line, idx));
                 return;
             }
         }
     }
 
-    fn select_prev_match(&mut self) {
+    fn select_prev_match(&mut self, kind: Option<PatternKind>) {
         let (line_idx, match_idx) = match self.selected {
             Some((line_idx, match_idx)) => (line_idx, match_idx),
             None => {
                 for &line_idx in self.visible_lines[..self.scroll_offset].iter().rev() {
-                    if !self.lines[line_idx].matches.is_empty() {
-                        self.select((line_idx, self.lines[line_idx].matches.len() - 1));
+                    if let Some(idx) = last_match_idx(&self.lines[line_idx].matches, kind) {
+                        self.select((line_idx, idx));
                         return;
                     }
                 }
                 // Wrap and try from the end to scroll offset
                 for &line_idx in self.visible_lines[self.scroll_offset..].iter().rev() {
-                    if !self.lines[line_idx].matches.is_empty() {
-                        self.select((line_idx, self.lines[line_idx].matches.len() - 1));
+                    if let Some(idx) = last_match_idx(&self.lines[line_idx].matches, kind) {
+                        self.select((line_idx, idx));
                         return;
                     }
                 }
@@ -223,8 +235,8 @@ impl App {
         };
 
         // Find previous match on the current line
-        if match_idx > 0 {
-            self.select((line_idx, match_idx - 1));
+        if let Some(idx) = last_match_idx(&self.lines[line_idx].matches[..match_idx], kind) {
+            self.select((line_idx, idx));
             return;
         }
 
@@ -238,15 +250,15 @@ impl App {
         };
 
         for &prev_line in self.visible_lines[..pos].iter().rev() {
-            if !self.lines[prev_line].matches.is_empty() {
-                self.select((prev_line, self.lines[prev_line].matches.len() - 1));
+            if let Some(idx) = last_match_idx(&self.lines[prev_line].matches, kind) {
+                self.select((prev_line, idx));
                 return;
             }
         }
 
         for &prev_line in self.visible_lines[pos + 1..].iter().rev() {
-            if !self.lines[prev_line].matches.is_empty() {
-                self.select((prev_line, self.lines[prev_line].matches.len() - 1));
+            if let Some(idx) = last_match_idx(&self.lines[prev_line].matches, kind) {
+                self.select((prev_line, idx));
                 return;
             }
         }
@@ -254,6 +266,7 @@ impl App {
 
     fn clear_selection(&mut self) {
         self.selected = None;
+        self.recompute_visible();
     }
 
     fn recompute_visible(&mut self) {
@@ -362,9 +375,9 @@ fn main() -> io::Result<()> {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(1), // top bar: exactly 1 row
+                    Constraint::Length(TOP_BAR_HEIGHT),
                     Constraint::Min(0),    // middle: whatever is left (at least 0)
-                    Constraint::Length(1), // bottom bar: exactly 1 row
+                    Constraint::Length(BOTTOM_BAR_HEIGHT),
                 ])
                 .split(frame.area());
 
@@ -389,7 +402,9 @@ fn main() -> io::Result<()> {
             let top_bar = Paragraph::new(top_text).style(bar_style);
 
             let bottom_bar =
-                Paragraph::new("q=quit  j/k=line  Ctrl-u/d=half  PgUp/PgDn=page  gg/G=top/bot  Tab/S-Tab=match  Esc=unsel")
+                Paragraph::new(
+                    "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot\n\
+                    Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  Esc=unsel")
                     .style(bar_style);
 
             let items: Vec<ListItem> = app
@@ -416,7 +431,8 @@ fn main() -> io::Result<()> {
 
         // Read terminal size outside the closure, so no need to mutate app in it.
         let term_size = terminal.size()?;
-        app.visible_height = (term_size.height as usize).saturating_sub(2); // minus top + bottom
+        app.visible_height = (term_size.height as usize)
+            .saturating_sub(TOP_BAR_HEIGHT as usize + BOTTOM_BAR_HEIGHT as usize);
 
         // EVENT: block until a key is pressed (or terminal resize).
         if let Event::Key(key) = event::read()? {
@@ -438,21 +454,42 @@ fn main() -> io::Result<()> {
             app.pending_g = false;
             match (key.code, key.modifiers) {
                 (KeyCode::Char('q'), _) => break,
-                // Scroll down
+
+                // clear filters
+                (KeyCode::Char('x'), _) => app.clear_filters(),
+
+                // Scroll down (half_page, one line, page)
+                (KeyCode::Char('j'), KeyModifiers::CONTROL) => app.scroll_down_by(half_page),
+                (KeyCode::Down, KeyModifiers::CONTROL) => app.scroll_down_by(half_page),
                 (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.scroll_down_by(1),
                 (KeyCode::PageDown, _) => app.scroll_down_by(full_page),
-                (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.scroll_down_by(half_page),
+
                 // Scroll up
+                (KeyCode::Char('k'), KeyModifiers::CONTROL) => app.scroll_up_by(half_page),
+                (KeyCode::Up, KeyModifiers::CONTROL) => app.scroll_up_by(half_page),
                 (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_up_by(1),
                 (KeyCode::PageUp, _) => app.scroll_up_by(full_page),
-                (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.scroll_up_by(half_page),
+
                 // Scroll top and bottom
                 (KeyCode::Home, _) => app.scroll_to_top(),
                 (KeyCode::Char('G'), _) | (KeyCode::End, _) => app.scroll_to_bottom(),
+
                 // Select/Unselect matches
                 (KeyCode::Esc, _) => app.clear_selection(),
-                (KeyCode::Tab, _) => app.select_next_match(),
-                (KeyCode::BackTab, _) => app.select_prev_match(),
+                (KeyCode::Tab, _) => app.select_next_match(None),
+                (KeyCode::BackTab, _) => app.select_prev_match(None),
+                (KeyCode::Char('d'), _) => app.select_next_match(Some(PatternKind::TaskId)),
+                (KeyCode::Char('r'), _) => app.select_next_match(Some(PatternKind::RequestId)),
+                (KeyCode::Char('t'), _) => app.select_next_match(Some(PatternKind::TrackId)),
+                (KeyCode::Char('u'), _) => app.select_next_match(Some(PatternKind::Uuid)),
+                (KeyCode::Char('o'), _) => app.select_next_match(Some(PatternKind::OpaqueRef)),
+                // As we are using SHIFT to go backward, caracters will be uppercase...
+                (KeyCode::Char('D'), _) => app.select_prev_match(Some(PatternKind::TaskId)),
+                (KeyCode::Char('R'), _) => app.select_prev_match(Some(PatternKind::RequestId)),
+                (KeyCode::Char('T'), _) => app.select_prev_match(Some(PatternKind::TrackId)),
+                (KeyCode::Char('U'), _) => app.select_prev_match(Some(PatternKind::Uuid)),
+                (KeyCode::Char('O'), _) => app.select_prev_match(Some(PatternKind::OpaqueRef)),
+
                 // Toggle match in active filters
                 (KeyCode::Enter, _) => {
                     if let Some((line_idx, match_idx)) = app.selected {

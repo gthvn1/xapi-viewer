@@ -55,6 +55,18 @@ pub struct LogLine {
     pub matches: Vec<Match>,
 }
 
+pub fn first_match_idx(matches: &[Match], kind: Option<PatternKind>) -> Option<usize> {
+    matches
+        .iter()
+        .position(|m| kind.is_none_or(|k| m.kind == k))
+}
+
+pub fn last_match_idx(matches: &[Match], kind: Option<PatternKind>) -> Option<usize> {
+    matches
+        .iter()
+        .rposition(|m| kind.is_none_or(|k| m.kind == k))
+}
+
 fn find_one_match(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
     re.find_iter(line)
         .map(|m| Match {
