@@ -317,10 +317,21 @@ fn color_for(kind: PatternKind) -> Color {
     }
 }
 
-fn render_log_line(log_line: &LogLine, selected_match_idx: Option<usize>) -> ListItem<'_> {
+fn render_log_line(
+    log_line: &LogLine,
+    selected_match_idx: Option<usize>,
+    line_idx: usize,
+) -> ListItem<'_> {
     let mut cursor = 0;
     let mut spans = Vec::new();
 
+    // First print the real line number
+    spans.push(Span::styled(
+        format!("{:6} ", line_idx + 1),
+        Style::default().add_modifier(Modifier::REVERSED),
+    ));
+
+    // Now iterate through matches to color as needed
     for (i, m) in log_line.matches.iter().enumerate() {
         // The style of the match depends if it is selected or not
         let style = if Some(i) == selected_match_idx {
@@ -342,6 +353,7 @@ fn render_log_line(log_line: &LogLine, selected_match_idx: Option<usize>) -> Lis
         cursor = m.range.end;
     }
 
+    // Don't forget the rest of the line
     if cursor < log_line.raw.len() {
         spans.push(Span::raw(&log_line.raw[cursor..log_line.raw.len()]));
     }
@@ -419,7 +431,7 @@ fn main() -> io::Result<()> {
                         Some((sel_line, sel_match)) if sel_line == abs_idx => Some(sel_match),
                         _ => None,
                     };
-                    render_log_line(log_line, selected_match_idx)
+                    render_log_line(log_line, selected_match_idx, abs_idx)
                 })
                 .collect();
 
