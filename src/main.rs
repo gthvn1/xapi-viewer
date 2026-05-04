@@ -150,13 +150,21 @@ impl App {
             None => {
                 // Nothing selected yet, pick first match. For first-time selection we
                 // anchor to viewport.
-                for vis_idx in self.scroll_offset..self.visible_lines.len() {
-                    let line_idx = self.visible_lines[vis_idx];
+                for &line_idx in self.visible_lines[self.scroll_offset..].iter() {
                     if !self.lines[line_idx].matches.is_empty() {
                         self.select((line_idx, 0));
                         return;
                     }
                 }
+
+                // Wrap and try from the beginning
+                for &line_idx in self.visible_lines[0..self.scroll_offset].iter() {
+                    if !self.lines[line_idx].matches.is_empty() {
+                        self.select((line_idx, 0));
+                        return;
+                    }
+                }
+
                 return; // no matches now in visible area, do nothing
             }
         };
@@ -183,23 +191,34 @@ impl App {
             }
         }
 
-        // Don't wrap yet. If a file has no matches we may loop forever
-        // TODO: Print a message that we are at the end of the file. Need to have
-        //       a debug area or something.
+        // We reach the end of visible_lines and we don't find anything. Wrap from beginning.
+        for &next_line in self.visible_lines[..pos].iter() {
+            if !self.lines[next_line].matches.is_empty() {
+                self.select((next_line, 0));
+                return;
+            }
+        }
     }
 
     fn select_prev_match(&mut self) {
         let (line_idx, match_idx) = match self.selected {
             Some((line_idx, match_idx)) => (line_idx, match_idx),
             None => {
-                let visible_range = &self.visible_lines[..self.scroll_offset];
-                for &idx in visible_range.iter().rev() {
-                    if !self.lines[idx].matches.is_empty() {
-                        self.select((idx, self.lines[idx].matches.len() - 1));
+                for &line_idx in self.visible_lines[..self.scroll_offset].iter().rev() {
+                    if !self.lines[line_idx].matches.is_empty() {
+                        self.select((line_idx, self.lines[line_idx].matches.len() - 1));
                         return;
                     }
                 }
-                return; // no match found. Don't wrap by the end of the file for now
+                // Wrap and try from the end to scroll offset
+                for &line_idx in self.visible_lines[self.scroll_offset..].iter().rev() {
+                    if !self.lines[line_idx].matches.is_empty() {
+                        self.select((line_idx, self.lines[line_idx].matches.len() - 1));
+                        return;
+                    }
+                }
+
+                return;
             }
         };
 
@@ -219,6 +238,13 @@ impl App {
         };
 
         for &prev_line in self.visible_lines[..pos].iter().rev() {
+            if !self.lines[prev_line].matches.is_empty() {
+                self.select((prev_line, self.lines[prev_line].matches.len() - 1));
+                return;
+            }
+        }
+
+        for &prev_line in self.visible_lines[pos + 1..].iter().rev() {
             if !self.lines[prev_line].matches.is_empty() {
                 self.select((prev_line, self.lines[prev_line].matches.len() - 1));
                 return;
