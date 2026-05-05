@@ -62,9 +62,16 @@ struct App {
 }
 
 impl App {
-    // TODO:
-    //   - We are loading the entire file into memory. Ok for small file but not for Giga ones.
-    //   - Better error handling. Currently we stop if an error occurred while reading
+    /// Loads the log file at `path` into memory and returns an `App` ready to
+    /// display it.
+    ///
+    /// Every line is parsed for identifier patterns via [`parse_line`].  All
+    /// lines start out visible (no filters applied).  Returns an `io::Error`
+    /// if the file cannot be opened or read.
+    ///
+    /// # Limitations
+    /// - The entire file is held in memory; very large files may exhaust RAM.
+    /// - Read errors cause the load to stop rather than skipping the bad line.
     fn new(path: String) -> io::Result<Self> {
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
@@ -88,21 +95,29 @@ impl App {
         })
     }
 
+    /// Resets `scroll_offset` to 0, bringing the first visible line to the top
+    /// of the viewport.
     fn scroll_to_top(&mut self) {
         self.scroll_offset = 0;
         eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
+    /// Sets `scroll_offset` to the last visible line, bringing the bottom of
+    /// the log into view.
     fn scroll_to_bottom(&mut self) {
         self.scroll_offset = self.visible_lines.len().saturating_sub(1);
         eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
+    /// Scrolls the viewport up by `n` lines, clamping at the top so that
+    /// `scroll_offset` never underflows.
     fn scroll_up_by(&mut self, n: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(n);
         eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
+    /// Scrolls the viewport down by `n` lines, stopping when the last visible
+    /// line would scroll off screen.
     fn scroll_down_by(&mut self, n: usize) {
         // Don't scroll past the end
         if self.scroll_offset < self.visible_lines.len().saturating_sub(n) {
@@ -111,6 +126,13 @@ impl App {
         eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
+    /// Adjusts `scroll_offset` so that the currently selected line is within
+    /// the viewport.
+    ///
+    /// If the selection is above the viewport the offset is moved up; if it is
+    /// below, the offset is moved down just enough to reveal the last selected
+    /// row.  Does nothing when there is no active selection or when the
+    /// selected line is not part of `visible_lines`.
     fn ensure_selected_visible(&mut self) {
         let Some((line_idx, _)) = self.selected else {
             eprintln!("nothing is selected");
@@ -145,13 +167,21 @@ impl App {
         }
     }
 
-    // Select and ensure that selection is visible
+    /// Sets the active selection to `sel` (an `(absolute_line_idx, match_idx)`
+    /// pair) and scrolls the viewport if necessary to keep it on screen.
     fn select(&mut self, sel: (usize, usize)) {
         self.selected = Some(sel);
         eprintln!("selected set to {:?}", sel);
         self.ensure_selected_visible();
     }
 
+    /// Moves the selection forward to the next match of the given `kind`, or
+    /// the next match of any kind when `kind` is `None`.
+    ///
+    /// If nothing is currently selected the search starts from the top of the
+    /// visible viewport. When the end of `visible_lines` is reached the
+    /// search wraps around to the beginning. Does nothing if there are no
+    /// qualifying matches in the current view.
     fn select_next_match(&mut self, kind: Option<PatternKind>) {
         let (line_idx, match_idx) = match self.selected {
             Some((line_idx, match_idx)) => (line_idx, match_idx),
@@ -165,7 +195,7 @@ impl App {
                     }
                 }
 
-                // Wrap and try from the beginning
+                // Wrap and try from the beginning.
                 for &line_idx in self.visible_lines[0..self.scroll_offset].iter() {
                     if let Some(idx) = first_match_idx(&self.lines[line_idx].matches, kind) {
                         self.select((line_idx, idx));
@@ -173,7 +203,7 @@ impl App {
                     }
                 }
 
-                return; // no matches now in visible area, do nothing
+                return; // no matches now in visible area, do nothing.
             }
         };
 
@@ -183,7 +213,7 @@ impl App {
             return;
         }
 
-        // We don't find a match on line_idx, try next ones
+        // We don't find a match on line_idx, try next ones.
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
             eprintln!(
                 "Is it a bug? failed to find line_idx {} in select_next_match",
@@ -208,6 +238,12 @@ impl App {
         }
     }
 
+    /// Moves the selection backward to the previous match of the given `kind`,
+    /// or the previous match of any kind when `kind` is `None`.
+    ///
+    /// Mirrors the behaviour of [`select_next_match`] but traverses
+    /// `visible_lines` in reverse and wraps from the beginning back to the
+    /// end.
     fn select_prev_match(&mut self, kind: Option<PatternKind>) {
         let (line_idx, match_idx) = match self.selected {
             Some((line_idx, match_idx)) => (line_idx, match_idx),
@@ -218,7 +254,7 @@ impl App {
                         return;
                     }
                 }
-                // Wrap and try from the end to scroll offset
+                // Wrap and try from the end to scroll offset.
                 for &line_idx in self.visible_lines[self.scroll_offset..].iter().rev() {
                     if let Some(idx) = last_match_idx(&self.lines[line_idx].matches, kind) {
                         self.select((line_idx, idx));
@@ -230,13 +266,13 @@ impl App {
             }
         };
 
-        // Find previous match on the current line
+        // Find previous match on the current line.
         if let Some(idx) = last_match_idx(&self.lines[line_idx].matches[..match_idx], kind) {
             self.select((line_idx, idx));
             return;
         }
 
-        // We don't find a match on line_idx, try previous ones
+        // We don't find a match on line_idx, try previous ones.
         let Some(pos) = self.visible_lines.iter().position(|&i| i == line_idx) else {
             eprintln!(
                 "Is it a bug? failed to find line_idx {} in select_prev_match",
@@ -260,16 +296,26 @@ impl App {
         }
     }
 
+    /// Clears the active selection and recomputes the visible line set.
     fn clear_selection(&mut self) {
         self.selected = None;
         self.recompute_visible();
     }
 
+    /// Removes all active filter tokens, making every line visible again, and
+    /// clears the current selection.
     fn clear_filters(&mut self) {
         self.active_filters.clear();
         self.clear_selection();
     }
 
+    /// Rebuilds `visible_lines` from `lines` according to `active_filters`.
+    ///
+    /// When `active_filters` is empty every line index is included. Otherwise
+    /// a line is included if its raw text contains **any** of the filter
+    /// tokens (OR semantics). `scroll_offset` is reset to 0, and
+    /// `selected` is cleared if the previously selected line is no longer
+    /// visible.
     fn recompute_visible(&mut self) {
         if self.active_filters.is_empty() {
             // No filters: every line is visible
@@ -290,10 +336,10 @@ impl App {
                 .collect();
         }
 
-        // Let's print the first 10 values of visible lines
+        // For debugging purpose, let's print the first 10 values of visible lines.
         let lim = self.visible_lines.len().min(10);
         let slice = &self.visible_lines[..lim];
-        eprintln!("first indices of visible_lines: {:?}", slice);
+        eprintln!("first 10 indices of visible_lines: {:?}", slice);
 
         // Reset scroll offset.
         // Note: We deliberately KEEP self.selected if it is still visible.
@@ -307,6 +353,8 @@ impl App {
     }
 }
 
+/// Maps a [`PatternKind`] to the TUI foreground colour used to highlight
+/// matches of that kind.
 fn color_for(kind: PatternKind) -> Color {
     match kind {
         PatternKind::TaskId => Color::Yellow,
@@ -317,6 +365,13 @@ fn color_for(kind: PatternKind) -> Color {
     }
 }
 
+/// Converts a [`LogLine`] into a coloured ratatui [`ListItem`].
+///
+/// The line number (1-based, drawn with reverse video) is prepended, then
+/// each recognised match is coloured according to [`color_for`].  The match
+/// at index `selected_match_idx` — if any — is additionally rendered with
+/// the reverse-video modifier to indicate the current selection.  Unmatched
+/// text between spans is rendered in the default style.
 fn render_log_line(
     log_line: &LogLine,
     selected_match_idx: Option<usize>,
@@ -362,6 +417,13 @@ fn render_log_line(
     ListItem::new(line)
 }
 
+/// Entry point.
+///
+/// Reads the log file path from the first command-line argument, loads it
+/// into an [`App`], then enters the ratatui TUI event loop.  The loop redraws
+/// the screen on every iteration and blocks on a key event before updating
+/// state.  The terminal is restored to its original state when the user quits
+/// with `q`.
 fn main() -> io::Result<()> {
     // Parse args: read path from command line
     let mut args = std::env::args();
@@ -522,8 +584,9 @@ fn main() -> io::Result<()> {
                         eprintln!("You must select a tag before adding it in active filters");
                     }
                 }
-                // ignore other keys
-                _ => {}
+                _ => {
+                    eprintln!("{:?} is ignored", key.code)
+                }
             }
         }
     }

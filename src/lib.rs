@@ -34,40 +34,67 @@ static OPAQUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("OPAQUE_REF_RE regex is invalid")
 });
 
+/// Classifies the kind of identifier matched within a log line.
+///
+/// Each variant corresponds to one of the token formats recognised by the
+/// XAPI log parser and determines how the match is coloured in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternKind {
+    /// A task identifier of the form `D:<12 hex digits>`.
     TaskId,
+    /// A request identifier of the form `R:<12 hex digits>`.
     RequestId,
+    /// A tracking identifier of the form `trackid=<32 hex digits>`.
     TrackId,
+    /// A UUID in standard hyphenated form, prefixed with `uuid:`.
     Uuid,
+    /// An XAPI opaque reference: `OpaqueRef:<UUID>` or `OpaqueRef:NULL`.
     OpaqueRef,
 }
 
+/// A single pattern match found within a log line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Match {
+    /// The kind of identifier that was matched.
     pub kind: PatternKind,
+    /// Byte range within the parent [`LogLine::raw`] string where the match
+    /// starts and ends. The range is guaranteed to be valid UTF-8 boundaries.
     pub range: Range<usize>,
 }
 
+/// A parsed log line together with all identifier matches it contains.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogLine {
+    /// The original, unmodified text of the line.
     pub raw: String,
+    /// All identifier matches found in `raw`, sorted by their start byte
+    /// offset and guaranteed to be non-overlapping.
     pub matches: Vec<Match>,
 }
 
+/// Returns the index of the first [`Match`] in `matches` whose kind equals
+/// `kind`, or the first match of any kind when `kind` is `None`.
+///
+/// Returns `None` when no qualifying match exists.
 pub fn first_match_idx(matches: &[Match], kind: Option<PatternKind>) -> Option<usize> {
     matches
         .iter()
         .position(|m| kind.is_none_or(|k| m.kind == k))
 }
 
+/// Returns the index of the last [`Match`] in `matches` whose kind equals
+/// `kind`, or the last match of any kind when `kind` is `None`.
+///
+/// Returns `None` when no qualifying match exists.
 pub fn last_match_idx(matches: &[Match], kind: Option<PatternKind>) -> Option<usize> {
     matches
         .iter()
         .rposition(|m| kind.is_none_or(|k| m.kind == k))
 }
 
-fn find_one_match(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
+/// Finds all occurrences of `re` in `line` and returns them as a `Vec<Match>`
+/// tagged with the given `kind`.  The ranges are in byte offsets into `line`.
+fn find_all_occurences_of(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
     re.find_iter(line)
         .map(|m| Match {
             kind,
@@ -76,12 +103,20 @@ fn find_one_match(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Ma
         .collect()
 }
 
+/// Scans `line` for all recognised identifier patterns and returns them sorted
+/// by start byte offset.
+///
+/// When an `OpaqueRef` token contains a bare UUID (which would also be matched
+/// by the UUID pattern), the overlapping UUID match is discarded so that each
+/// byte range appears at most once in the result.
 pub fn find_all_matches(line: &str) -> Vec<Match> {
-    let mut v = find_one_match(&TASK_ID_RE, PatternKind::TaskId, line);
-    v.extend(find_one_match(&REQUEST_ID_RE, PatternKind::RequestId, line));
-    v.extend(find_one_match(&TRACK_ID_RE, PatternKind::TrackId, line));
-    v.extend(find_one_match(&UUID_RE, PatternKind::Uuid, line));
-    v.extend(find_one_match(&OPAQUE_REF_RE, PatternKind::OpaqueRef, line));
+    use PatternKind::*;
+
+    let mut v = find_all_occurences_of(&TASK_ID_RE, TaskId, line);
+    v.extend(find_all_occurences_of(&REQUEST_ID_RE, RequestId, line));
+    v.extend(find_all_occurences_of(&TRACK_ID_RE, TrackId, line));
+    v.extend(find_all_occurences_of(&UUID_RE, Uuid, line));
+    v.extend(find_all_occurences_of(&OPAQUE_REF_RE, OpaqueRef, line));
 
     v.sort_by_key(|a| a.range.start);
 
@@ -105,12 +140,15 @@ pub fn find_all_matches(line: &str) -> Vec<Match> {
     filtered
 }
 
+/// Parses a raw log line string into a [`LogLine`] by running all pattern
+/// matchers against it and storing the results alongside the original text.
 pub fn parse_line(raw: String) -> LogLine {
     let matches = find_all_matches(&raw);
     LogLine { raw, matches }
 }
 
-// Private predicates.
+/// Returns `true` when `s` consists of exactly `prefix` followed by exactly
+/// `hex_len` ASCII hexadecimal characters, and `false` otherwise.
 fn is_hex_id_with_prefix(s: &str, prefix: &str, hex_len: usize) -> bool {
     match s.strip_prefix(prefix) {
         None => false,
@@ -118,8 +156,9 @@ fn is_hex_id_with_prefix(s: &str, prefix: &str, hex_len: usize) -> bool {
     }
 }
 
-// Return true if s is of the form XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-// where X is a hexadecimal digit
+/// Returns `true` when `s` is exactly of the form
+/// `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX` where every `X` is an ASCII
+/// hexadecimal digit (groups of 8-4-4-4-12 characters separated by hyphens).
 fn is_uuid_shaped(s: &str) -> bool {
     let part_len = [8, 4, 4, 4, 12];
     let parts: Vec<&str> = s.split('-').collect();
@@ -137,18 +176,26 @@ fn is_uuid_shaped(s: &str) -> bool {
     true
 }
 
+/// Returns `true` when `s` is a valid XAPI task identifier (`D:` followed by
+/// 12 hexadecimal digits).
 pub fn is_task_id(s: &str) -> bool {
     is_hex_id_with_prefix(s, TASK_ID_PREFIX, TASK_ID_HEX_LEN)
 }
 
+/// Returns `true` when `s` is a valid XAPI request identifier (`R:` followed
+/// by 12 hexadecimal digits).
 pub fn is_request_id(s: &str) -> bool {
     is_hex_id_with_prefix(s, REQUEST_ID_PREFIX, REQUEST_ID_HEX_LEN)
 }
 
+/// Returns `true` when `s` is a valid XAPI track identifier (`trackid=`
+/// followed by 32 hexadecimal digits).
 pub fn is_track_id(s: &str) -> bool {
     is_hex_id_with_prefix(s, TRACK_ID_PREFIX, TRACK_ID_HEX_LEN)
 }
 
+/// Returns `true` when `s` is of the form `uuid:<UUID>` where `<UUID>` is a
+/// standard hyphenated UUID (8-4-4-4-12 hex groups).
 pub fn is_uuid(s: &str) -> bool {
     match s.strip_prefix(UUID_PREFIX) {
         None => false,
@@ -156,6 +203,8 @@ pub fn is_uuid(s: &str) -> bool {
     }
 }
 
+/// Returns `true` when `s` is a valid XAPI opaque reference: either
+/// `OpaqueRef:NULL` (the null sentinel) or `OpaqueRef:<UUID>`.
 pub fn is_opaque_ref(s: &str) -> bool {
     match s.strip_prefix(OPAQUE_REF_PREFIX) {
         None => false,
@@ -164,6 +213,8 @@ pub fn is_opaque_ref(s: &str) -> bool {
     }
 }
 
+/// Returns `s` unchanged when it is at most `max_chars` Unicode scalar values
+/// long, or a prefix of exactly `max_chars` scalar values otherwise.
 pub fn truncate_for_display(s: &str, max_chars: usize) -> String {
     if s.chars().count() > max_chars {
         s.chars().take(max_chars).collect::<String>()
