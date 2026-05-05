@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashSet,
     fs::File,
     io::{self, BufRead, BufReader, stdout},
@@ -15,7 +16,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{List, ListItem, Paragraph},
 };
 
@@ -59,6 +60,9 @@ struct App {
     /// User-added filter tokens. OR semantics: a line is visible if it contains any of these
     /// substrings.
     active_filters: HashSet<String>,
+
+    /// When set to true, log lines may span multiple lines. It is false by default.
+    wrap: bool,
 }
 
 impl App {
@@ -92,7 +96,13 @@ impl App {
             selected: None,
             active_filters: HashSet::new(),
             visible_lines,
+            wrap: false,
         })
+    }
+
+    /// Toggles whether long log lines wrap onto multiple terminal rows.
+    fn toggle_wrap(&mut self) {
+        self.wrap = !self.wrap;
     }
 
     /// Resets `scroll_offset` to 0, bringing the first visible line to the top
@@ -365,26 +375,125 @@ fn color_for(kind: PatternKind) -> Color {
     }
 }
 
+/// Append `text` to the current row in `rows`.
+/// When line wrapping is enabled, log lines may span multiple lines when
+/// exceed `line_size` columns.
+///
+/// `col` is the caller's running column counter for the current row; it is
+/// updated in place. Each new row created by wrapping starts with a
+/// reverse-video blank prefix of `margin` columns to visually align with
+/// the line-number prefix at the start of the first row.
+///
+/// The `text` parameter accepts both borrowed (`&str`) and owned (`String`)
+/// inputs via `Cow`. This is required because some callers pass slices of
+/// the original log line (borrowed) while others pass `format!`-built
+/// strings (owned).
+///
+/// # Caveats
+///
+/// Lengths are counted in bytes (`str::len`), not display columns. This is
+/// correct for ASCII log lines but will mis-wrap multi-byte UTF-8 input.
+///
+/// # FIXME: scroll math vs. wrapped rows
+///
+/// When wrapping is enabled, a single logical line in `App::visible_lines`
+/// can render as N physical terminal rows. The viewport `take` count in
+/// `main()` is in logical lines, so when wrapped lines are present the
+/// rendered area overflows the available height and content at the bottom
+/// is clipped by ratatui. `ensure_selected_visible` and `scroll_*_by` also
+/// reason in logical lines, so scrolling can feel jumpy near wrapped lines.
+///
+/// A correct fix requires either (a) computing physical row height per
+/// logical line and accumulating until height is exhausted, or (b)
+/// switching the rendering model so visible_lines is row-indexed. Both are
+/// non-trivial. For now, callers can disable wrapping (single-row mode) to
+/// avoid the issue.
+fn push_wrapped<'a>(
+    rows: &mut Vec<Line<'a>>,
+    col: &mut usize,
+    text: impl Into<Cow<'a, str>>,
+    style: Style,
+    line_size: usize,
+    margin: usize,
+    wrap: bool,
+) {
+    let mut text: Cow<'a, str> = text.into();
+
+    let prefix_blank = Span::styled(
+        " ".repeat(margin),
+        Style::default().add_modifier(Modifier::REVERSED),
+    );
+
+    if rows.is_empty() {
+        rows.push(Line::from(Vec::<Span>::new()));
+    }
+
+    loop {
+        // Check if the whole line fits into one line
+        let avail = line_size - *col;
+        if !wrap || text.len() <= avail {
+            // Only update col if we need to wrap. Otherwise it will grow past
+            // line_size and we will underflow (usize, so it panics).
+            if wrap {
+                *col += text.len();
+            }
+            rows.last_mut()
+                .unwrap()
+                .spans
+                .push(Span::styled(text, style));
+            return;
+        }
+
+        // Doesn't fit.
+        let (head, tail) = text.split_at(avail);
+        // Append the head,
+        rows.last_mut()
+            .unwrap()
+            .spans
+            .push(Span::styled(head.to_string(), style));
+        // and start new row,
+        rows.push(Line::from(vec![prefix_blank.clone()]));
+        // continue with the tail.
+        text = Cow::Owned(tail.to_string());
+        *col = margin;
+    }
+}
+
 /// Converts a [`LogLine`] into a coloured ratatui [`ListItem`].
 ///
 /// The line number (1-based, drawn with reverse video) is prepended, then
-/// each recognised match is coloured according to [`color_for`].  The match
-/// at index `selected_match_idx` — if any — is additionally rendered with
-/// the reverse-video modifier to indicate the current selection.  Unmatched
+/// each recognised match is coloured according to [`color_for`]. The match
+/// at index `selected_match_idx`, if any, is additionally rendered with
+/// the reverse-video modifier to indicate the current selection. Unmatched
 /// text between spans is rendered in the default style.
 fn render_log_line(
     log_line: &LogLine,
     selected_match_idx: Option<usize>,
     line_idx: usize,
+    line_max_size: usize,
+    wrap: bool,
 ) -> ListItem<'_> {
     let mut cursor = 0;
-    let mut spans = Vec::new();
+    let mut rows: Vec<Line> = Vec::new();
+    let mut col = 0;
+    let margin = 7;
+    // Ensure that the width for printing line is at least 20
+    let line_real_size = line_max_size.max(20);
 
     // First print the real line number
-    spans.push(Span::styled(
-        format!("{:6} ", line_idx + 1),
+    push_wrapped(
+        &mut rows,
+        &mut col,
+        format!("{:<width$}", line_idx + 1, width = margin),
         Style::default().add_modifier(Modifier::REVERSED),
-    ));
+        line_real_size,
+        margin,
+        wrap,
+    );
+    //spans.push(Span::styled(
+    //    format!("{:<width$}", line_idx + 1, width = margin),
+    //    Style::default().add_modifier(Modifier::REVERSED),
+    //));
 
     // Now iterate through matches to color as needed
     for (i, m) in log_line.matches.iter().enumerate() {
@@ -398,23 +507,56 @@ fn render_log_line(
         };
 
         if m.range.start > cursor {
-            spans.push(Span::raw(&log_line.raw[cursor..m.range.start]));
+            push_wrapped(
+                &mut rows,
+                &mut col,
+                &log_line.raw[cursor..m.range.start],
+                Style::default(),
+                line_real_size,
+                margin,
+                wrap,
+            );
+            //spans.push(Span::raw(&log_line.raw[cursor..m.range.start]));
         }
 
-        spans.push(Span::styled(
-            &log_line.raw[m.range.clone()], // Range isn't Copy, need clone
+        push_wrapped(
+            &mut rows,
+            &mut col,
+            &log_line.raw[m.range.clone()],
             style,
-        ));
+            line_real_size,
+            margin,
+            wrap,
+        );
+        //spans.push(Span::styled(
+        //    &log_line.raw[m.range.clone()], // Range isn't Copy, need clone
+        //    style,
+        //));
         cursor = m.range.end;
     }
 
     // Don't forget the rest of the line
     if cursor < log_line.raw.len() {
-        spans.push(Span::raw(&log_line.raw[cursor..log_line.raw.len()]));
+        push_wrapped(
+            &mut rows,
+            &mut col,
+            &log_line.raw[cursor..log_line.raw.len()],
+            Style::default(),
+            line_real_size,
+            margin,
+            wrap,
+        );
+        //spans.push(Span::raw(&log_line.raw[cursor..log_line.raw.len()]));
     }
 
-    let line = Line::from(spans);
-    ListItem::new(line)
+    // TESTING TO ADD A NEW LINE
+    //let prefix_blank = Span::styled(
+    //    " ".repeat(margin),
+    //    Style::default().add_modifier(Modifier::REVERSED),
+    //);
+    //let fakeline = Line::from(vec![prefix_blank, Span::raw("fake line")]);
+
+    ListItem::new(Text::from(rows))
 }
 
 /// Entry point.
@@ -445,6 +587,9 @@ fn main() -> io::Result<()> {
 
     // --- Main Loop ---
     loop {
+        // Read terminal size outside the closure, so no need to mutate app in it.
+        let term_size = terminal.size()?;
+
         // DRAW: redraw the whole screen
         terminal.draw(|frame| {
             let chunks = Layout::default()
@@ -478,7 +623,7 @@ fn main() -> io::Result<()> {
 
             let bottom_bar =
                 Paragraph::new(
-                    "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot\n\
+                    "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot w=toggle-long-lines\n\
                     Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  Esc=unsel")
                     .style(bar_style);
 
@@ -493,7 +638,7 @@ fn main() -> io::Result<()> {
                         Some((sel_line, sel_match)) if sel_line == abs_idx => Some(sel_match),
                         _ => None,
                     };
-                    render_log_line(log_line, selected_match_idx, abs_idx)
+                    render_log_line(log_line, selected_match_idx, abs_idx, term_size.width as usize, app.wrap)
                 })
                 .collect();
 
@@ -504,8 +649,6 @@ fn main() -> io::Result<()> {
             frame.render_widget(bottom_bar, chunks[2]);
         })?;
 
-        // Read terminal size outside the closure, so no need to mutate app in it.
-        let term_size = terminal.size()?;
         app.visible_height = (term_size.height as usize)
             .saturating_sub(TOP_BAR_HEIGHT as usize + BOTTOM_BAR_HEIGHT as usize);
 
@@ -564,6 +707,9 @@ fn main() -> io::Result<()> {
                 (KeyCode::Char('T'), _) => app.select_prev_match(Some(PatternKind::TrackId)),
                 (KeyCode::Char('U'), _) => app.select_prev_match(Some(PatternKind::Uuid)),
                 (KeyCode::Char('O'), _) => app.select_prev_match(Some(PatternKind::OpaqueRef)),
+
+                // Toggle wrap/unwrap long lines
+                (KeyCode::Char('w'), _) => app.toggle_wrap(),
 
                 // Toggle match in active filters
                 (KeyCode::Enter, _) => {
