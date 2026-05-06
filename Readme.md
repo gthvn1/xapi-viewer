@@ -18,7 +18,7 @@ task IDs (`D:`), request IDs (`R:`), track IDs (`trackid=`), UUIDs, and OpaqueRe
   - Cross-reference with the XAPI database
 - Run: `cargo run -- samples/xensource.log 2>/tmp/debug.log`
   - Use your own logs
-  - Don't forget to redirect stderr.
+  - It's a WIP: **don't forget to redirect stderr**.
 - Here is a screenshot
 <img src="screenshots/screenshot.png" alt="xapi-viewer screenshot" />
 
