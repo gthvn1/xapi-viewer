@@ -5,8 +5,7 @@ Its key differentiator over [lnav](https://lnav.org/) is **one-keystroke filteri
 task IDs (`D:`), request IDs (`R:`), track IDs (`trackid=`), UUIDs, and OpaqueRefs.
 
 - **Note**: This tool is a specialized viewer, not a general-purpose log engine. It lacks the vast majority of
-            lnav's feature set (such as log merging or syntax highlighting for non-XAPI logs) in favor of a
-            lightweight, hard-coded focus on XAPI token navigation.
+            lnav's feature set in favor of a lightweight, hard-coded focus on XAPI token navigation.
 
 # Status
 
