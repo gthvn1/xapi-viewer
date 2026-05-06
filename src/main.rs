@@ -166,9 +166,8 @@ impl App {
     /// line would scroll off screen.
     fn scroll_down_by(&mut self, n: usize) {
         // Don't scroll past the end
-        if self.scroll_offset < self.visible_lines.len().saturating_sub(n) {
-            self.scroll_offset += n;
-        }
+        self.scroll_offset =
+            (self.scroll_offset + n).min(self.visible_lines.len().saturating_sub(1));
         eprintln!("set scroll_offset to {}", self.scroll_offset);
     }
 
@@ -763,6 +762,7 @@ fn main() -> io::Result<()> {
 
             if app.filter_panel_idx.is_some() {
                 match (key.code, key.modifiers) {
+                    // NOTE: don't quit when filter panel is open
                     // Toggle filter panel
                     (KeyCode::Char('f'), _) => app.toggle_filter_panel(),
                     (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_filter_panel_idx_up(),
