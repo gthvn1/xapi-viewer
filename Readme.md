@@ -1,3 +1,13 @@
+## Description
+
+- `xapi-viewer` is a TUI log viewer written in Rust (ratatui) designed for XAPI logs.
+Its key differentiator over [lnav](https://lnav.org/) is **one-keystroke filtering by known XAPI token types**:
+task IDs (`D:`), request IDs (`R:`), track IDs (`trackid=`), UUIDs, and OpaqueRefs.
+
+- **Note**: This tool is a specialized viewer, not a general-purpose log engine. It lacks the vast majority of
+            lnav's feature set (such as log merging or syntax highlighting for non-XAPI logs) in favor of a
+            lightweight, hard-coded focus on XAPI token navigation.
+
 # Status
 
 - Currently we have a pager. We can load logs and scroll with highlights of keywords like `TaskId` (`D:xxxx`), `RequestId` (`R:xxxx`), `TrackId` (`trackid=xxxx`), `Uuid` (`uuid:xxxx`), and `OpaqueRef` (`OpaqueRef:xxxx`).
