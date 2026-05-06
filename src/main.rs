@@ -63,6 +63,9 @@ struct App {
 
     /// When set to true, log lines may span multiple lines. It is false by default.
     wrap: bool,
+
+    /// When set to true, filter panel is opened.
+    show_filter_panel: bool,
 }
 
 impl App {
@@ -97,12 +100,24 @@ impl App {
             active_filters: HashSet::new(),
             visible_lines,
             wrap: false,
+            show_filter_panel: false,
         })
     }
 
     /// Toggles whether long log lines wrap onto multiple terminal rows.
     fn toggle_wrap(&mut self) {
         self.wrap = !self.wrap;
+    }
+
+    /// Toggles the filter panel visibility. When opened, j/k/Enter operate on
+    /// the panel.
+    fn toggle_filter_panel(&mut self) {
+        self.show_filter_panel = !self.show_filter_panel;
+        if self.show_filter_panel {
+            eprintln!("TODO: open filter panel");
+        } else {
+            eprintln!("TODO: close filter panel");
+        }
     }
 
     /// Resets `scroll_offset` to 0, bringing the first visible line to the top
@@ -623,7 +638,7 @@ fn main() -> io::Result<()> {
 
             let bottom_bar =
                 Paragraph::new(
-                    "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot w=toggle-long-lines\n\
+                    "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot  w=toggle-long-lines  f=toggle-filter-panel\n\
                     Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  Esc=unsel")
                     .style(bar_style);
 
@@ -710,6 +725,9 @@ fn main() -> io::Result<()> {
 
                 // Toggle wrap/unwrap long lines
                 (KeyCode::Char('w'), _) => app.toggle_wrap(),
+
+                // Toggle filter panel
+                (KeyCode::Char('f'), _) => app.toggle_filter_panel(),
 
                 // Toggle match in active filters
                 (KeyCode::Enter, _) => {
