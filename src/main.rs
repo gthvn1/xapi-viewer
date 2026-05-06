@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    collections::HashSet,
     fs::File,
     io::{self, BufRead, BufReader, stdout},
 };
@@ -59,13 +58,13 @@ struct App {
 
     /// User-added filter tokens. OR semantics: a line is visible if it contains any of these
     /// substrings.
-    active_filters: HashSet<String>,
+    active_filters: Vec<String>,
 
     /// When set to true, log lines may span multiple lines. It is false by default.
     wrap: bool,
 
-    /// When set to true, filter panel is opened.
-    show_filter_panel: bool,
+    /// Index of the selected filter when filter panel is opened. None if filter panel is closed.
+    filter_panel_idx: Option<usize>,
 }
 
 impl App {
@@ -97,10 +96,10 @@ impl App {
             pending_g: false,
             visible_height: 0, // will be updated each render
             selected: None,
-            active_filters: HashSet::new(),
+            active_filters: Vec::new(),
             visible_lines,
             wrap: false,
-            show_filter_panel: false,
+            filter_panel_idx: None,
         })
     }
 
@@ -112,11 +111,33 @@ impl App {
     /// Toggles the filter panel visibility. When opened, j/k/Enter operate on
     /// the panel.
     fn toggle_filter_panel(&mut self) {
-        self.show_filter_panel = !self.show_filter_panel;
-        if self.show_filter_panel {
-            eprintln!("TODO: open filter panel");
+        if self.filter_panel_idx.is_some() {
+            self.filter_panel_idx = None;
         } else {
-            eprintln!("TODO: close filter panel");
+            // TODO: Maybe we should use -1 if the hashset is empty...
+            self.filter_panel_idx = Some(0);
+        }
+    }
+
+    /// Scrolls into filter panel up by one. It wraps if we are on the top.
+    fn scroll_filter_panel_idx_up(&mut self) {
+        if !self.active_filters.is_empty() {
+            self.filter_panel_idx = match self.filter_panel_idx {
+                None => None,
+                Some(0) => Some(self.active_filters.len() - 1),
+                Some(n) => Some(n - 1),
+            };
+        }
+    }
+
+    /// Scrolls into filter panel down by one. It wraps if we are at the bottom.
+    fn scroll_filter_panel_idx_down(&mut self) {
+        if !self.active_filters.is_empty() {
+            self.filter_panel_idx = match self.filter_panel_idx {
+                None => None,
+                Some(n) if n >= self.active_filters.len() - 1 => Some(0),
+                Some(n) => Some(n + 1),
+            };
         }
     }
 
@@ -374,6 +395,21 @@ impl App {
             && !self.visible_lines.contains(&current_selected_line)
         {
             self.selected = None;
+        }
+    }
+
+    fn remove_selected_filter(&mut self) {
+        if let Some(idx) = self.filter_panel_idx
+            && idx < self.active_filters.len()
+        {
+            self.active_filters.remove(idx);
+            self.recompute_visible();
+            // Clamp selection.
+            if self.active_filters.is_empty() {
+                self.filter_panel_idx = None;
+            } else if idx >= self.active_filters.len() {
+                self.filter_panel_idx = Some(self.active_filters.len() - 1);
+            }
         }
     }
 }
@@ -646,7 +682,7 @@ fn main() -> io::Result<()> {
 
             // MIDDLE AREA: either logs or logs + filters
             let middle = chunks[1];
-            let (log_area, filter_area) = if app.show_filter_panel {
+            let (log_area, filter_area) = if app.filter_panel_idx.is_some() {
                 let h_chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
@@ -675,12 +711,23 @@ fn main() -> io::Result<()> {
             frame.render_widget(List::new(items), log_area);
             if let Some(panel) = filter_area {
                 let panel_block = Block::default().borders(Borders::ALL).title("Filters");
-                let filters: Vec<ListItem> = app
-                    .active_filters
-                    .iter()
-                    .map(|s| ListItem::new(s.as_str()))
-                    .collect();
-                frame.render_widget(List::new(filters).block(panel_block),panel);
+                if app.active_filters.is_empty() {
+                    frame.render_widget(Paragraph::new("No active filter").block(panel_block),panel);
+                } else {
+                    let filters: Vec<ListItem> = app
+                        .active_filters
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| {
+                            let style = if Some(i) == app.filter_panel_idx {
+                                Style::default().add_modifier(Modifier::REVERSED)
+                            } else {
+                                Style::default()
+                            };
+                            ListItem::new(Span::styled(s.as_str(), style))})
+                        .collect();
+                    frame.render_widget(List::new(filters).block(panel_block),panel);
+                }
             };
             frame.render_widget(bottom_bar, chunks[2]);
         })?;
@@ -706,6 +753,22 @@ fn main() -> io::Result<()> {
 
             // Any other key resets the pending state and falls through to the match.
             app.pending_g = false;
+
+            if app.filter_panel_idx.is_some() {
+                match (key.code, key.modifiers) {
+                    // Toggle filter panel
+                    (KeyCode::Char('f'), _) => app.toggle_filter_panel(),
+                    (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_filter_panel_idx_up(),
+                    (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                        app.scroll_filter_panel_idx_down()
+                    }
+                    (KeyCode::Enter, _) => app.remove_selected_filter(),
+                    _ => {
+                        eprintln!("{:?} is ignored", key.code)
+                    }
+                }
+                continue;
+            }
             match (key.code, key.modifiers) {
                 (KeyCode::Char('q'), _) => break,
 
@@ -759,10 +822,10 @@ fn main() -> io::Result<()> {
 
                         if app.active_filters.contains(&token) {
                             eprintln!("{} removed from active filters", &token);
-                            app.active_filters.remove(&token);
+                            app.active_filters.retain(|f| f != &token);
                         } else {
                             eprintln!("{} added in active filters", &token);
-                            app.active_filters.insert(token);
+                            app.active_filters.push(token);
                         }
                         app.recompute_visible();
                     } else {
