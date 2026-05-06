@@ -13,9 +13,9 @@ task IDs (`D:`), request IDs (`R:`), track IDs (`trackid=`), UUIDs, and OpaqueRe
 - Filtering by keyword is supported: navigate to a match with Tab/Shift-Tab, then press Enter to toggle it as an active filter.
 - Next steps:
   - ~~Add a filter panel to easily deselect filters~~
+  - Cross-reference with the XAPI database
   - Use Memory-map files and build a line-offset index
   - Load multiple files
-  - Cross-reference with the XAPI database
 - Run: `cargo run -- samples/xensource.log 2>/tmp/debug.log`
   - Use your own logs
   - It's a WIP: **don't forget to redirect stderr**.
