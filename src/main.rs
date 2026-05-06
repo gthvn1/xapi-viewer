@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use xapi_viewer::{LogLine, PatternKind, first_match_idx, last_match_idx, parse_line};
@@ -634,13 +634,27 @@ fn main() -> io::Result<()> {
                     app.active_filters.len())
             };
 
+            // TOP
             let top_bar = Paragraph::new(top_text).style(bar_style);
 
+            // BOTTOM
             let bottom_bar =
                 Paragraph::new(
                     "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot  w=toggle-long-lines  f=toggle-filter-panel\n\
                     Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  Esc=unsel")
                     .style(bar_style);
+
+            // MIDDLE AREA: either logs or logs + filters
+            let middle = chunks[1];
+            let (log_area, filter_area) = if app.show_filter_panel {
+                let h_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+                    .split(middle);
+                (h_chunks[0], Some(h_chunks[1]))
+            } else {
+                (middle, None)
+            };
 
             let items: Vec<ListItem> = app
                 .visible_lines
@@ -653,14 +667,21 @@ fn main() -> io::Result<()> {
                         Some((sel_line, sel_match)) if sel_line == abs_idx => Some(sel_match),
                         _ => None,
                     };
-                    render_log_line(log_line, selected_match_idx, abs_idx, term_size.width as usize, app.wrap)
+                    render_log_line(log_line, selected_match_idx, abs_idx, log_area.width as usize, app.wrap)
                 })
                 .collect();
 
-            let main_area = List::new(items);
-
             frame.render_widget(top_bar, chunks[0]);
-            frame.render_widget(main_area, chunks[1]);
+            frame.render_widget(List::new(items), log_area);
+            if let Some(panel) = filter_area {
+                let panel_block = Block::default().borders(Borders::ALL).title("Filters");
+                let filters: Vec<ListItem> = app
+                    .active_filters
+                    .iter()
+                    .map(|s| ListItem::new(s.as_str()))
+                    .collect();
+                frame.render_widget(List::new(filters).block(panel_block),panel);
+            };
             frame.render_widget(bottom_bar, chunks[2]);
         })?;
 
