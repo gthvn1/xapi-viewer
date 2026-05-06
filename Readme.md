@@ -1,4 +1,4 @@
-## Description
+# Description
 
 - `xapi-viewer` is a TUI log viewer written in Rust (ratatui) designed for XAPI logs.
 Its key differentiator over [lnav](https://lnav.org/) is **one-keystroke filtering by known XAPI token types**:
