@@ -12,7 +12,8 @@ task IDs (`D:`), request IDs (`R:`), track IDs (`trackid=`), UUIDs, and OpaqueRe
 - Currently we have a pager. We can load logs and scroll with highlights of keywords like `TaskId` (`D:xxxx`), `RequestId` (`R:xxxx`), `TrackId` (`trackid=xxxx`), `Uuid` (`uuid:xxxx`), and `OpaqueRef` (`OpaqueRef:xxxx`).
 - Filtering by keyword is supported: navigate to a match with Tab/Shift-Tab, then press Enter to toggle it as an active filter.
 - Next steps:
-  - Add a filter panel to easily deselect filters
+  - ~~Add a filter panel to easily deselect filters~~
+  - Use Memory-map files and build a line-offset index
   - Load multiple files
   - Cross-reference with the XAPI database
 - Run: `cargo run -- samples/xensource.log 2>/tmp/debug.log`
