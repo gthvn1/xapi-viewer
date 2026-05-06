@@ -406,7 +406,7 @@ impl App {
             self.recompute_visible();
             // Clamp selection.
             if self.active_filters.is_empty() {
-                self.filter_panel_idx = None;
+                self.filter_panel_idx = Some(0); // Note: choosing None will close the panel. Not sure what is better.
             } else if idx >= self.active_filters.len() {
                 self.filter_panel_idx = Some(self.active_filters.len() - 1);
             }
