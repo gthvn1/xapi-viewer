@@ -398,6 +398,13 @@ impl App {
         }
     }
 
+    /// Removes the filter currently highlighted in the filter panel from
+    /// `active_filters` and recomputes the visible line set.
+    ///
+    /// If the removed filter was the last one, the panel index stays at 0
+    /// (panel remains open with no filters). Otherwise the index is clamped
+    /// to the new last position to keep it in bounds. Does nothing when no
+    /// filter is selected or the index is out of range.
     fn remove_selected_filter(&mut self) {
         if let Some(idx) = self.filter_panel_idx
             && idx < self.active_filters.len()
@@ -428,7 +435,7 @@ fn color_for(kind: PatternKind) -> Color {
 
 /// Append `text` to the current row in `rows`.
 /// When line wrapping is enabled, log lines may span multiple lines when
-/// exceed `line_size` columns.
+/// they exceed `line_size` columns.
 ///
 /// `col` is the caller's running column counter for the current row; it is
 /// updated in place. Each new row created by wrapping starts with a
