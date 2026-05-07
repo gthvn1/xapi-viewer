@@ -1,3 +1,5 @@
+pub mod xapi_db;
+
 use regex::Regex;
 use std::ops::Range;
 use std::sync::LazyLock;
