@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     fs::File,
     io::{self, BufRead, BufReader, stdout},
+    path::PathBuf,
 };
 
 use crossterm::{
@@ -19,7 +20,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-use xapi_viewer::{LogLine, PatternKind, first_match_idx, last_match_idx, parse_line};
+use xapi_viewer::{
+    LogLine, PatternKind, cli::parse_args, first_match_idx, last_match_idx, parse_line,
+};
 
 const TOP_BAR_HEIGHT: u16 = 1;
 const BOTTOM_BAR_HEIGHT: u16 = 2;
@@ -35,7 +38,7 @@ const BOTTOM_BAR_HEIGHT: u16 = 2;
 ///   currently in `visible_lines` if filters changed: rendering handles this gracefully
 ///   (no inverse-video drawn for hidden lines).
 struct App {
-    file_path: String,
+    file_path: PathBuf,
     /// The full parsed file. Never mutated after construction. Order matters.
     lines: Vec<LogLine>,
 
@@ -78,7 +81,7 @@ impl App {
     /// # Limitations
     /// - The entire file is held in memory; very large files may exhaust RAM.
     /// - Read errors cause the load to stop rather than skipping the bad line.
-    fn new(path: String) -> io::Result<Self> {
+    fn new(path: PathBuf) -> io::Result<Self> {
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
         let lines: Vec<LogLine> = reader
@@ -625,17 +628,21 @@ fn render_log_line(
 /// with `q`.
 fn main() -> io::Result<()> {
     // Parse args: read path from command line
-    let mut args = std::env::args();
-    let path = match args.nth(1) {
-        None => {
+    let argv = std::env::args().collect::<Vec<String>>();
+    let args = match parse_args(&argv) {
+        Err(e) => {
+            eprintln!("{}", e);
             eprintln!("Usage: xapi-viewer <path>");
             std::process::exit(1);
         }
-        Some(p) => p,
+        Ok(a) => a,
     };
 
+    eprintln!("log file: {:?}", args.log_file);
+    eprintln!("db file: {:?}", args.db_file);
+
     // Load file before entering TUI mode
-    let mut app = App::new(path)?;
+    let mut app = App::new(args.log_file)?;
 
     // --- SETUP ---
     enable_raw_mode()?;
@@ -664,13 +671,13 @@ fn main() -> io::Result<()> {
             let top_text = if app.active_filters.is_empty() {
                 format!(
                     "xapi-viewer - {} ({}/{})",
-                    app.file_path,
+                    app.file_path.display(),
                     app.scroll_offset + 1,
                     app.lines.len())
             } else {
                 format!(
                     "xapi-viewer - {} ({}/{}) filtered, {} active",
-                    app.file_path,
+                    app.file_path.display(),
                     app.scroll_offset + 1,
                     app.visible_lines.len(),
                     app.active_filters.len())

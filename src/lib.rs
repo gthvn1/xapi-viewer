@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod xapi_db;
 
 use regex::Regex;
