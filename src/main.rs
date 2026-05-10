@@ -580,10 +580,6 @@ fn render_log_line(
         margin,
         wrap,
     );
-    //spans.push(Span::styled(
-    //    format!("{:<width$}", line_idx + 1, width = margin),
-    //    Style::default().add_modifier(Modifier::REVERSED),
-    //));
 
     // Now iterate through matches to color as needed
     for (i, m) in log_line.matches.iter().enumerate() {
@@ -618,10 +614,6 @@ fn render_log_line(
             margin,
             wrap,
         );
-        //spans.push(Span::styled(
-        //    &log_line.raw[m.range.clone()], // Range isn't Copy, need clone
-        //    style,
-        //));
         cursor = m.range.end;
     }
 
@@ -636,15 +628,7 @@ fn render_log_line(
             margin,
             wrap,
         );
-        //spans.push(Span::raw(&log_line.raw[cursor..log_line.raw.len()]));
     }
-
-    // TESTING TO ADD A NEW LINE
-    //let prefix_blank = Span::styled(
-    //    " ".repeat(margin),
-    //    Style::default().add_modifier(Modifier::REVERSED),
-    //);
-    //let fakeline = Line::from(vec![prefix_blank, Span::raw("fake line")]);
 
     ListItem::new(Text::from(rows))
 }
