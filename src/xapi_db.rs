@@ -3,18 +3,30 @@ use std::collections::HashMap;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
+/// A single object from the XAPI database, identified by its OpaqueRef.
 #[derive(Debug)]
 pub struct Object {
+    /// The XAPI class name (e.g. `"VM"`, `"host"`).
     pub class: String,
+    /// All attribute key/value pairs stored on this object.
     pub fields: HashMap<String, String>,
 }
 
+/// In-memory representation of the XAPI database, indexed by OpaqueRef.
 #[derive(Debug)]
 pub struct Db {
     objects: HashMap<String, Object>,
 }
 
 impl Db {
+    /// Parses the XAPI database from an XML string and returns a [`Db`].
+    ///
+    /// The database format is a flat XML document where each `<table name="…">`
+    /// element contains `<row>` elements whose attributes become object fields.
+    /// The `_ref` attribute of each row is used as the OpaqueRef key.
+    ///
+    /// Returns an error if the XML is malformed, a row is missing its `_ref`,
+    /// or any other structural constraint is violated.
     pub fn parse(xml: &str) -> Result<Db, Box<dyn std::error::Error>> {
         let mut reader = Reader::from_str(xml);
         let mut buf = Vec::new();
@@ -33,7 +45,7 @@ impl Db {
                     }
                     current_table = Some(parse_table_name(&e)?)
                 }
-                Event::Start(_) => (), // We are only interesting by table, ignore all others
+                Event::Start(_) => (), // We are only interested in tables, ignore all others
                 Event::End(e) if e.local_name().as_ref() == b"table" => current_table = None,
                 Event::End(_) => (),
                 Event::Empty(e) if e.local_name().as_ref() == b"row" => {
@@ -44,7 +56,7 @@ impl Db {
                     let (opaque_ref, fields) = parse_row(&e)?;
                     db_objs.insert(opaque_ref, Object { class, fields });
                 }
-                Event::Empty(_) => (), // We are only interesting by row, ignore all others
+                Event::Empty(_) => (), // We are only interested in rows, ignore all others
                 Event::Text(e) => {
                     let bytes = e.as_ref(); // &[u8]
                     if bytes.iter().any(|b| !b.is_ascii_whitespace()) {
@@ -65,11 +77,14 @@ impl Db {
         Ok(Db { objects: db_objs })
     }
 
+    /// Looks up an object by its OpaqueRef string. Returns `None` if not found.
     pub fn get(&self, opaque_ref: &str) -> Option<&Object> {
         self.objects.get(opaque_ref)
     }
 }
 
+/// Extracts the `name` attribute from a `<table>` element start tag.
+/// Returns an error if the attribute is absent.
 fn parse_table_name(e: &BytesStart<'_>) -> Result<String, Box<dyn std::error::Error>> {
     for attr in e.attributes() {
         let attr = attr?;
@@ -81,6 +96,11 @@ fn parse_table_name(e: &BytesStart<'_>) -> Result<String, Box<dyn std::error::Er
     Err("table has no name attribute".into())
 }
 
+/// Parses a `<row>` element into an OpaqueRef key and a map of field attributes.
+///
+/// The `_ref` attribute becomes the OpaqueRef key; all other attributes
+/// (except the `ref` alias) are stored as fields. Returns an error if `_ref`
+/// is missing or appears more than once.
 fn parse_row(
     e: &BytesStart<'_>,
 ) -> Result<(String, HashMap<String, String>), Box<dyn std::error::Error>> {

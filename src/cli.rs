@@ -1,11 +1,22 @@
 use std::path::PathBuf;
 
+/// Parsed command-line arguments for xapi-viewer.
 #[derive(Debug, PartialEq)]
 pub struct CliArgs {
+    /// Path to the log file to display.
     pub log_file: PathBuf,
+    /// Optional path to the XAPI database file (passed via `--db`).
     pub db_file: Option<PathBuf>,
 }
 
+/// Parses the raw argument list `argv` (including `argv[0]`, the program name)
+/// and returns a [`CliArgs`] on success, or an error message string on failure.
+///
+/// Recognised flags:
+/// - `--db <path>`: path to the XAPI database file (optional, at most once).
+///
+/// The single positional argument is the mandatory log file path. Any unknown
+/// flag or extra positional argument is treated as an error.
 pub fn parse_args(argv: &[String]) -> Result<CliArgs, String> {
     let mut db_file: Option<PathBuf> = None;
     let mut log_file: Option<PathBuf> = None;

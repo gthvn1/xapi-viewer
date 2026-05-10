@@ -27,7 +27,7 @@ use xapi_viewer::{
 const TOP_BAR_HEIGHT: u16 = 1;
 const BOTTOM_BAR_HEIGHT: u16 = 2;
 
-/// When lookup the DB we can have three different states:
+/// When looking up the DB we can have three different states:
 /// 1. DB present and token found,
 /// 2. DB present but token not in the DB,
 ///   - selected object is not an OpaqueRef (so it is expected to not find it)
@@ -117,7 +117,7 @@ impl App {
             .map_while(Result::ok)
             .map(parse_line)
             .collect();
-        // When app starts there is no filters, all lines are visible
+        // When app starts there are no filters, all lines are visible
         let visible_lines = (0..lines.len()).collect();
 
         Ok(Self {
@@ -152,7 +152,7 @@ impl App {
         }
     }
 
-    /// Scrolls into filter panel up by one. It wraps if we are on the top.
+    /// Scrolls the filter panel selection up by one, wrapping around if at the top.
     fn scroll_filter_panel_idx_up(&mut self) {
         if !self.active_filters.is_empty() {
             self.filter_panel_idx = match self.filter_panel_idx {
@@ -163,7 +163,7 @@ impl App {
         }
     }
 
-    /// Scrolls into filter panel down by one. It wraps if we are at the bottom.
+    /// Scrolls the filter panel selection down by one, wrapping around if at the bottom.
     fn scroll_filter_panel_idx_down(&mut self) {
         if !self.active_filters.is_empty() {
             self.filter_panel_idx = match self.filter_panel_idx {
@@ -414,7 +414,7 @@ impl App {
                 .collect();
         }
 
-        // For debugging purpose, let's print the first 10 values of visible lines.
+        // For debugging purposes, let's print the first 10 values of visible lines.
         let lim = self.visible_lines.len().min(10);
         let slice = &self.visible_lines[..lim];
         eprintln!("first 10 indices of visible_lines: {:?}", slice);
@@ -633,6 +633,11 @@ fn render_log_line(
     ListItem::new(Text::from(rows))
 }
 
+/// Returns a [`Rect`] centred within `area`, sized as a percentage of it.
+///
+/// `percent_x` and `percent_y` are the desired width and height as
+/// percentages of `area` (0–100). The remaining space is split equally on
+/// both sides to produce a centred popup region.
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     use ratatui::layout::{Constraint, Direction, Layout};
 
@@ -818,10 +823,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         lines.push(Line::from("Not found in database."));
                     }
                     InfoPopupKind::NoDb =>  {
-                        lines.push(Line::from("No database loaded (use --db to load XAPI db."));
+                        lines.push(Line::from("No database loaded (use --db to load XAPI db)."));
                     }
                     InfoPopupKind::UnsupportedKind(k) => {
-                        lines.push(Line::from(format!("info lookup no supported for {:?}.", k)));
+                        lines.push(Line::from(format!("info lookup not supported for {:?}.", k)));
                     }
                 }
 
@@ -926,7 +931,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 KeyCode::Char('t') => app.select_next_match(Some(PatternKind::TrackId)),
                 KeyCode::Char('u') => app.select_next_match(Some(PatternKind::Uuid)),
                 KeyCode::Char('o') => app.select_next_match(Some(PatternKind::OpaqueRef)),
-                // As we are using SHIFT to go backward, caracters will be uppercase...
+                // As we are using SHIFT to go backward, characters will be uppercase...
                 KeyCode::Char('D') => app.select_prev_match(Some(PatternKind::TaskId)),
                 KeyCode::Char('R') => app.select_prev_match(Some(PatternKind::RequestId)),
                 KeyCode::Char('T') => app.select_prev_match(Some(PatternKind::TrackId)),

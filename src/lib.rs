@@ -97,7 +97,7 @@ pub fn last_match_idx(matches: &[Match], kind: Option<PatternKind>) -> Option<us
 
 /// Finds all occurrences of `re` in `line` and returns them as a `Vec<Match>`
 /// tagged with the given `kind`.  The ranges are in byte offsets into `line`.
-fn find_all_occurences_of(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
+fn find_all_occurrences_of(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -> Vec<Match> {
     re.find_iter(line)
         .map(|m| Match {
             kind,
@@ -115,11 +115,11 @@ fn find_all_occurences_of(re: &LazyLock<Regex>, kind: PatternKind, line: &str) -
 pub fn find_all_matches(line: &str) -> Vec<Match> {
     use PatternKind::*;
 
-    let mut v = find_all_occurences_of(&TASK_ID_RE, TaskId, line);
-    v.extend(find_all_occurences_of(&REQUEST_ID_RE, RequestId, line));
-    v.extend(find_all_occurences_of(&TRACK_ID_RE, TrackId, line));
-    v.extend(find_all_occurences_of(&UUID_RE, Uuid, line));
-    v.extend(find_all_occurences_of(&OPAQUE_REF_RE, OpaqueRef, line));
+    let mut v = find_all_occurrences_of(&TASK_ID_RE, TaskId, line);
+    v.extend(find_all_occurrences_of(&REQUEST_ID_RE, RequestId, line));
+    v.extend(find_all_occurrences_of(&TRACK_ID_RE, TrackId, line));
+    v.extend(find_all_occurrences_of(&UUID_RE, Uuid, line));
+    v.extend(find_all_occurrences_of(&OPAQUE_REF_RE, OpaqueRef, line));
 
     v.sort_by_key(|a| a.range.start);
 
