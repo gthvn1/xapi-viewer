@@ -14,10 +14,10 @@ use crossterm::{
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 
 use xapi_viewer::{
@@ -69,6 +69,10 @@ struct App {
     /// Index of the selected filter when filter panel is opened. None if filter panel is closed.
     filter_panel_idx: Option<usize>,
 
+    /// `Some(token)` = info popup is open showing this token.
+    /// `None` = closed. Single source of truth for visibility.
+    info_popup: Option<String>,
+
     /// XAPI Database if it is passed as a parameter
     db: Option<Db>,
 }
@@ -106,6 +110,7 @@ impl App {
             visible_lines,
             wrap: false,
             filter_panel_idx: None,
+            info_popup: None,
             db,
         })
     }
@@ -623,6 +628,28 @@ fn render_log_line(
     ListItem::new(Text::from(rows))
 }
 
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    use ratatui::layout::{Constraint, Direction, Layout};
+
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
 /// Entry point.
 ///
 /// Reads the log file path from the first command-line argument, loads it
@@ -711,7 +738,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let bottom_bar =
                 Paragraph::new(
                     "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot  w=toggle-long-lines  f=toggle-filter-panel\n\
-                    Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  Esc=unsel")
+                    Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  i=info  Esc=unsel")
                     .style(bar_style);
 
             // MIDDLE AREA: either logs or logs + filters
@@ -743,6 +770,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             frame.render_widget(top_bar, chunks[0]);
             frame.render_widget(List::new(items), log_area);
+
             if let Some(panel) = filter_area {
                 let panel_block = Block::default().borders(Borders::ALL).title("Filters");
                 if app.active_filters.is_empty() {
@@ -764,6 +792,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             frame.render_widget(bottom_bar, chunks[2]);
+
+            if let Some(token) = &app.info_popup {
+    let area = centered_rect(60, 30, frame.area());
+    let block = Block::default()
+        .title(" Info ")
+        .borders(Borders::ALL);
+
+    let lines = vec![
+        Line::from(token.as_str()),
+        Line::from(""),
+        Line::from("(lookup not wired)"),
+        Line::from(""),
+        Line::from("Esc to close").style(Style::default().fg(Color::DarkGray)),
+    ];
+    let paragraph = Paragraph::new(lines).block(block);
+
+    frame.render_widget(Clear, area);   // wipe what's beneath
+    frame.render_widget(paragraph, area);
+}
         })?;
 
         app.visible_height = (term_size.height as usize)
@@ -788,22 +835,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Any other key resets the pending state and falls through to the match.
             app.pending_g = false;
 
+            // Highest precedence is info popup. Once opened we are waiting to close it
+            // by either pressing Esc or 'i'.
+            if app.info_popup.is_some() {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('i') => app.info_popup = None,
+                    _ => {}
+                }
+                continue;
+            }
+
+            // Next by precedence is filter panel.
             if app.filter_panel_idx.is_some() {
-                match (key.code, key.modifiers) {
+                match key.code {
                     // NOTE: don't quit when filter panel is open
                     // Toggle filter panel
-                    (KeyCode::Char('f'), _) => app.toggle_filter_panel(),
-                    (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_filter_panel_idx_up(),
-                    (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                        app.scroll_filter_panel_idx_down()
-                    }
-                    (KeyCode::Enter, _) => app.remove_selected_filter(),
+                    KeyCode::Char('f') => app.toggle_filter_panel(),
+                    KeyCode::Char('k') | KeyCode::Up => app.scroll_filter_panel_idx_up(),
+                    KeyCode::Char('j') | KeyCode::Down => app.scroll_filter_panel_idx_down(),
+                    KeyCode::Enter => app.remove_selected_filter(),
                     _ => {
                         eprintln!("{:?} is ignored", key.code)
                     }
                 }
                 continue;
             }
+
+            // And the default: log view mode.
             match (key.code, key.modifiers) {
                 (KeyCode::Char('q'), _) => break,
 
@@ -844,6 +902,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Toggle wrap/unwrap long lines
                 (KeyCode::Char('w'), _) => app.toggle_wrap(),
+
+                // Toggle info popup
+                (KeyCode::Char('i'), _) => {
+                    if let Some((line_idx, match_idx)) = app.selected {
+                        let line = &app.lines[line_idx];
+                        let m = &line.matches[match_idx];
+                        let token = line.raw[m.range.clone()].to_string();
+                        app.info_popup = Some(token);
+                    }
+                    // If nothing is selected, silently do nothing.
+                }
 
                 // Toggle filter panel
                 (KeyCode::Char('f'), _) => app.toggle_filter_panel(),
