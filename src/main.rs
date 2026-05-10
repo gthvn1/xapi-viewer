@@ -27,6 +27,27 @@ use xapi_viewer::{
 const TOP_BAR_HEIGHT: u16 = 1;
 const BOTTOM_BAR_HEIGHT: u16 = 2;
 
+/// When lookup the DB we can have three different states:
+/// 1. DB present and token found,
+/// 2. DB present but token not in the DB,
+///   - selected object is not an OpaqueRef (so it is expected to not find it)
+///   - it is an OpaqueRef (so it is not in the DB)
+/// 3. No DB loaded (--db not provided).
+enum InfoPopupKind {
+    Resolved {
+        class: String,
+        fields: Vec<(String, String)>,
+    }, // sorted for display stability
+    UnsupportedKind(PatternKind),
+    NotInDb,
+    NoDb,
+}
+
+struct InfoPopup {
+    token: String,
+    kind: InfoPopupKind,
+}
+
 /// Application state for the TUI.
 ///
 /// # Invariants
@@ -71,7 +92,7 @@ struct App {
 
     /// `Some(token)` = info popup is open showing this token.
     /// `None` = closed. Single source of truth for visibility.
-    info_popup: Option<String>,
+    info_popup: Option<InfoPopup>,
 
     /// XAPI Database if it is passed as a parameter
     db: Option<Db>,
@@ -793,21 +814,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             frame.render_widget(bottom_bar, chunks[2]);
 
-            if let Some(token) = &app.info_popup {
+            if let Some(popup) = &app.info_popup {
                 let area = centered_rect(60, 30, frame.area());
                 let block = Block::default()
                     .title(" Info ")
                     .borders(Borders::ALL);
 
-                let lines = vec![
-                    Line::from(token.as_str()),
-                    Line::from(""),
-                    Line::from("(lookup not wired)"),
-                    Line::from(""),
-                    Line::from("Esc to close").style(Style::default().fg(Color::DarkGray)),
-                ];
-                let paragraph = Paragraph::new(lines).block(block);
+                let mut lines = vec![Line::from(popup.token.as_str()), Line::from("")];
 
+                match &popup.kind {
+                    InfoPopupKind::Resolved {class, fields } =>{
+                        lines.push(Line::from(format!("Class: {}", class)));
+                        lines.push(Line::from(""));
+                        for (k,v) in fields {
+                            lines.push(Line::from(format!("{} : {}", k, v)));
+                        }
+                    }
+                    InfoPopupKind::NotInDb => {
+                        lines.push(Line::from("Not found in database."));
+                    }
+                    InfoPopupKind::NoDb =>  {
+                        lines.push(Line::from("No database loaded (use --db to load XAPI db."));
+                    }
+                    InfoPopupKind::UnsupportedKind(k) => {
+                        lines.push(Line::from(format!("info lookup no supported for {:?}.", k)));
+                    }
+                }
+
+                lines.push(Line::from(""));
+                lines.push(Line::from("Esc to close")
+                    .style(Style::default().fg(Color::DarkGray)));
+
+                let paragraph = Paragraph::new(lines).block(block);
                 frame.render_widget(Clear, area);   // wipe what's beneath
                 frame.render_widget(paragraph, area);
             }
@@ -920,7 +958,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let line = &app.lines[line_idx];
                         let m = &line.matches[match_idx];
                         let token = line.raw[m.range.clone()].to_string();
-                        app.info_popup = Some(token);
+
+                        let kind = match m.kind {
+                            PatternKind::OpaqueRef => match &app.db {
+                                None => InfoPopupKind::NoDb,
+                                Some(db) => match db.get(&token) {
+                                    None => InfoPopupKind::NotInDb,
+                                    Some(obj) => {
+                                        let mut fields: Vec<_> = obj
+                                            .fields
+                                            .iter()
+                                            .map(|(k, v)| (k.clone(), v.clone()))
+                                            .collect();
+                                        fields.sort_by(|a, b| a.0.cmp(&b.0));
+                                        InfoPopupKind::Resolved {
+                                            class: obj.class.clone(),
+                                            fields,
+                                        }
+                                    }
+                                },
+                            },
+                            other => InfoPopupKind::UnsupportedKind(other),
+                        };
+
+                        app.info_popup = Some(InfoPopup { token, kind });
                     }
                     // If nothing is selected, silently do nothing.
                 }
