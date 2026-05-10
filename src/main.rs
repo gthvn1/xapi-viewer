@@ -739,7 +739,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Paragraph::new(
                     "q=quit  j/k=scroll  Ctrl-j/k=half  PgUp/Dn=page  gg/G=top/bot  w=toggle-long-lines  f=toggle-filter-panel\n\
                     Tab/S-Tab=match  d/r/t/u/o=next-kind  D/R/T/U/O=prev-kind  Enter=filter  x=clear-filters  i=info  Esc=unsel")
-                    .style(bar_style);
+                .style(bar_style);
 
             // MIDDLE AREA: either logs or logs + filters
             let middle = chunks[1];
@@ -766,7 +766,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     render_log_line(log_line, selected_match_idx, abs_idx, log_area.width as usize, app.wrap)
                 })
-                .collect();
+            .collect();
 
             frame.render_widget(top_bar, chunks[0]);
             frame.render_widget(List::new(items), log_area);
@@ -794,23 +794,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame.render_widget(bottom_bar, chunks[2]);
 
             if let Some(token) = &app.info_popup {
-    let area = centered_rect(60, 30, frame.area());
-    let block = Block::default()
-        .title(" Info ")
-        .borders(Borders::ALL);
+                let area = centered_rect(60, 30, frame.area());
+                let block = Block::default()
+                    .title(" Info ")
+                    .borders(Borders::ALL);
 
-    let lines = vec![
-        Line::from(token.as_str()),
-        Line::from(""),
-        Line::from("(lookup not wired)"),
-        Line::from(""),
-        Line::from("Esc to close").style(Style::default().fg(Color::DarkGray)),
-    ];
-    let paragraph = Paragraph::new(lines).block(block);
+                let lines = vec![
+                    Line::from(token.as_str()),
+                    Line::from(""),
+                    Line::from("(lookup not wired)"),
+                    Line::from(""),
+                    Line::from("Esc to close").style(Style::default().fg(Color::DarkGray)),
+                ];
+                let paragraph = Paragraph::new(lines).block(block);
 
-    frame.render_widget(Clear, area);   // wipe what's beneath
-    frame.render_widget(paragraph, area);
-}
+                frame.render_widget(Clear, area);   // wipe what's beneath
+                frame.render_widget(paragraph, area);
+            }
+
         })?;
 
         app.visible_height = (term_size.height as usize)
@@ -862,49 +863,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // And the default: log view mode.
-            match (key.code, key.modifiers) {
-                (KeyCode::Char('q'), _) => break,
+            match key.code {
+                KeyCode::Char('q') => break,
 
                 // clear filters
-                (KeyCode::Char('x'), _) => app.clear_filters(),
+                KeyCode::Char('x') => app.clear_filters(),
 
                 // Scroll down (half_page, one line, page)
-                (KeyCode::Char('j'), KeyModifiers::CONTROL) => app.scroll_down_by(half_page),
-                (KeyCode::Down, KeyModifiers::CONTROL) => app.scroll_down_by(half_page),
-                (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.scroll_down_by(1),
-                (KeyCode::PageDown, _) => app.scroll_down_by(full_page),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    let n = if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        half_page
+                    } else {
+                        1
+                    };
+                    app.scroll_down_by(n);
+                }
+                KeyCode::PageDown => app.scroll_down_by(full_page),
 
-                // Scroll up
-                (KeyCode::Char('k'), KeyModifiers::CONTROL) => app.scroll_up_by(half_page),
-                (KeyCode::Up, KeyModifiers::CONTROL) => app.scroll_up_by(half_page),
-                (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.scroll_up_by(1),
-                (KeyCode::PageUp, _) => app.scroll_up_by(full_page),
+                // Scroll up (half_page, one line, page)
+                KeyCode::Char('k') | KeyCode::Up => {
+                    let n = if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        half_page
+                    } else {
+                        1
+                    };
+                    app.scroll_up_by(n);
+                }
+                KeyCode::PageUp => app.scroll_up_by(full_page),
 
                 // Scroll top and bottom
-                (KeyCode::Home, _) => app.scroll_to_top(),
-                (KeyCode::Char('G'), _) | (KeyCode::End, _) => app.scroll_to_bottom(),
+                KeyCode::Home => app.scroll_to_top(),
+                KeyCode::Char('G') | KeyCode::End => app.scroll_to_bottom(),
 
                 // Select/Unselect matches
-                (KeyCode::Esc, _) => app.clear_selection(),
-                (KeyCode::Tab, _) => app.select_next_match(None),
-                (KeyCode::BackTab, _) => app.select_prev_match(None),
-                (KeyCode::Char('d'), _) => app.select_next_match(Some(PatternKind::TaskId)),
-                (KeyCode::Char('r'), _) => app.select_next_match(Some(PatternKind::RequestId)),
-                (KeyCode::Char('t'), _) => app.select_next_match(Some(PatternKind::TrackId)),
-                (KeyCode::Char('u'), _) => app.select_next_match(Some(PatternKind::Uuid)),
-                (KeyCode::Char('o'), _) => app.select_next_match(Some(PatternKind::OpaqueRef)),
+                KeyCode::Esc => app.clear_selection(),
+                KeyCode::Tab => app.select_next_match(None),
+                KeyCode::BackTab => app.select_prev_match(None),
+                KeyCode::Char('d') => app.select_next_match(Some(PatternKind::TaskId)),
+                KeyCode::Char('r') => app.select_next_match(Some(PatternKind::RequestId)),
+                KeyCode::Char('t') => app.select_next_match(Some(PatternKind::TrackId)),
+                KeyCode::Char('u') => app.select_next_match(Some(PatternKind::Uuid)),
+                KeyCode::Char('o') => app.select_next_match(Some(PatternKind::OpaqueRef)),
                 // As we are using SHIFT to go backward, caracters will be uppercase...
-                (KeyCode::Char('D'), _) => app.select_prev_match(Some(PatternKind::TaskId)),
-                (KeyCode::Char('R'), _) => app.select_prev_match(Some(PatternKind::RequestId)),
-                (KeyCode::Char('T'), _) => app.select_prev_match(Some(PatternKind::TrackId)),
-                (KeyCode::Char('U'), _) => app.select_prev_match(Some(PatternKind::Uuid)),
-                (KeyCode::Char('O'), _) => app.select_prev_match(Some(PatternKind::OpaqueRef)),
+                KeyCode::Char('D') => app.select_prev_match(Some(PatternKind::TaskId)),
+                KeyCode::Char('R') => app.select_prev_match(Some(PatternKind::RequestId)),
+                KeyCode::Char('T') => app.select_prev_match(Some(PatternKind::TrackId)),
+                KeyCode::Char('U') => app.select_prev_match(Some(PatternKind::Uuid)),
+                KeyCode::Char('O') => app.select_prev_match(Some(PatternKind::OpaqueRef)),
 
                 // Toggle wrap/unwrap long lines
-                (KeyCode::Char('w'), _) => app.toggle_wrap(),
+                KeyCode::Char('w') => app.toggle_wrap(),
 
                 // Toggle info popup
-                (KeyCode::Char('i'), _) => {
+                KeyCode::Char('i') => {
                     if let Some((line_idx, match_idx)) = app.selected {
                         let line = &app.lines[line_idx];
                         let m = &line.matches[match_idx];
@@ -915,10 +926,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Toggle filter panel
-                (KeyCode::Char('f'), _) => app.toggle_filter_panel(),
+                KeyCode::Char('f') => app.toggle_filter_panel(),
 
                 // Toggle match in active filters
-                (KeyCode::Enter, _) => {
+                KeyCode::Enter => {
                     if let Some((line_idx, match_idx)) = app.selected {
                         let log_line = &app.lines[line_idx];
                         let m = &log_line.matches[match_idx];
