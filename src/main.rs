@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    fs::File,
+    fs::{self, File},
     io::{self, BufRead, BufReader, stdout},
     path::PathBuf,
 };
@@ -21,7 +21,7 @@ use ratatui::{
 };
 
 use xapi_viewer::{
-    LogLine, PatternKind, cli::parse_args, first_match_idx, last_match_idx, parse_line,
+    LogLine, PatternKind, cli::parse_args, first_match_idx, last_match_idx, parse_line, xapi_db::Db,
 };
 
 const TOP_BAR_HEIGHT: u16 = 1;
@@ -68,6 +68,9 @@ struct App {
 
     /// Index of the selected filter when filter panel is opened. None if filter panel is closed.
     filter_panel_idx: Option<usize>,
+
+    /// XAPI Database if it is passed as a parameter
+    db: Option<Db>,
 }
 
 impl App {
@@ -81,7 +84,7 @@ impl App {
     /// # Limitations
     /// - The entire file is held in memory; very large files may exhaust RAM.
     /// - Read errors cause the load to stop rather than skipping the bad line.
-    fn new(path: PathBuf) -> io::Result<Self> {
+    fn new(path: PathBuf, db: Option<Db>) -> io::Result<Self> {
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
         let lines: Vec<LogLine> = reader
@@ -103,6 +106,7 @@ impl App {
             visible_lines,
             wrap: false,
             filter_panel_idx: None,
+            db,
         })
     }
 
@@ -626,7 +630,7 @@ fn render_log_line(
 /// the screen on every iteration and blocks on a key event before updating
 /// state.  The terminal is restored to its original state when the user quits
 /// with `q`.
-fn main() -> io::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse args: read path from command line
     let argv = std::env::args().collect::<Vec<String>>();
     let args = match parse_args(&argv) {
@@ -641,8 +645,25 @@ fn main() -> io::Result<()> {
     eprintln!("log file: {:?}", args.log_file);
     eprintln!("db file: {:?}", args.db_file);
 
+    let db: Option<Db> = if let Some(db_file) = args.db_file {
+        let t0 = std::time::Instant::now();
+        let db_string: String = fs::read_to_string(&db_file)?;
+        let read_elapsed = t0.elapsed();
+
+        let t1 = std::time::Instant::now();
+        let db = Db::parse(&db_string)?;
+        let parse_elapsed = t1.elapsed();
+        eprintln!(
+            "Loaded {:?}: read {:?}, parse {:?}",
+            db_file, read_elapsed, parse_elapsed
+        );
+        Some(db)
+    } else {
+        None
+    };
+
     // Load file before entering TUI mode
-    let mut app = App::new(args.log_file)?;
+    let mut app = App::new(args.log_file, db)?;
 
     // --- SETUP ---
     enable_raw_mode()?;
